@@ -72,7 +72,7 @@ namespace ConsoleApp1
                 "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
 
             // สลับบรรทัดด้านล่างเพื่อเปลี่ยนระหว่าง webcam กับ RTSP
-            //string rtspUrl = "rtsp://admin:Admin1234@192.168.11.61:554/Streaming/Channels/101";
+            //string rtspUrl = "rtsp://admin:Admin1234@192.168.11.80:554/Streaming/Channels/101";
             //using var capture = new VideoCapture(rtspUrl);
             using var capture = new VideoCapture(0);
             capture.Set(VideoCaptureProperties.BufferSize, 1);
@@ -291,7 +291,6 @@ namespace ConsoleApp1
         private static void DetectorLoop(RtDetrDetector detector, PaddleOcrRecognizer ocr)
         {
             using var detectionFrame = new Mat();
-            string lastLoggedText = string.Empty;
 
             while (_running)
             {
@@ -321,12 +320,13 @@ namespace ConsoleApp1
                 {
                     var (ocrResult, previewImage) = ocr.RecognizeThaiPlateFromFrameWithPreview(
                         detectionFrame, det.Box);
-                    var stable = _plateTracker.Stabilize(
+
+                    var tracked = _plateTracker.Update(
                         det.Box, ocrResult.PlateNumber, ocrResult.Province, det.Confidence);
 
-                    det.PlateNumber = stable.PlateNumber;
-                    det.Province = stable.Province;
-                    det.PlateText = BuildPlateText(stable.PlateNumber, stable.Province);
+                    det.PlateNumber = tracked.DisplayPlate;
+                    det.Province = tracked.DisplayProvince;
+                    det.PlateText = BuildPlateText(tracked.DisplayPlate, tracked.DisplayProvince);
                     activeBoxes.Add(det.Box);
 
                     if (previewImage != null && !previewImage.Empty())
@@ -339,15 +339,11 @@ namespace ConsoleApp1
                         previewImage.Dispose();
                     }
 
-                    if (!string.IsNullOrWhiteSpace(det.PlateNumber) || !string.IsNullOrWhiteSpace(det.Province))
+                    if (tracked.ShouldLog)
                     {
-                        string logKey = det.PlateText;
-                        if (logKey != lastLoggedText)
-                        {
-                            Console.WriteLine(
-                                $"[OCR] เลข: {det.PlateNumber}  |  จังหวัด: {det.Province}  (detect: {det.Confidence:F2})");
-                            lastLoggedText = logKey;
-                        }
+                        Console.WriteLine(
+                            $"[OCR] เลข: {tracked.LogPlate}  |  จังหวัด: {tracked.LogProvince}  " +
+                            $"(detect: {tracked.LogConfidence:F2}, confirm: {tracked.ConfirmVotes}/{tracked.SampleCount})");
                     }
                 }
 

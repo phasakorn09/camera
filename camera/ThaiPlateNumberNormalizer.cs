@@ -153,7 +153,7 @@ namespace ConsoleApp1
             }
         }
 
-        /// <summary>ปรับเลขหลัง parse/vote — ใช้ร่วมกับ PlateReadTracker ได้</summary>
+        /// <summary>ปรับเลขหลัง parse — ใช้ร่วมกับ ThaiPlateNumberNormalizer.Normalize ได้</summary>
         internal static string RefineDigits(string digits, string letters)
         {
             if (string.IsNullOrEmpty(digits))
@@ -162,9 +162,7 @@ namespace ConsoleApp1
             digits = FixSameDigitTrailingZero(digits);
             digits = TrimShortPlateExtension(digits, letters);
             digits = FixHomogeneousOutlier(digits);
-            digits = FixAabbTrailingDigit(digits);
-            digits = FixAabb6688Family(digits, letters);
-            digits = FixAbbaPattern(digits);
+            digits = FixVanityDoublePattern(digits, letters);
 
             if (digits.Length == 3 && digits.All(c => c == digits[0]))
                 return new string(digits[0], MaxDigits);
@@ -206,159 +204,164 @@ namespace ConsoleApp1
             return digits.Replace(outlier, dominant);
         }
 
-        /// <summary>6680 / 6608 — AABB แต่ท้าย/กลางเป็น 0 แทน 6 หรือ 8</summary>
-        private static string FixAabbTrailingDigit(string digits)
+        private const int MinVanitySnapScore = 5;
+
+        /// <summary>
+        /// เลขเบิ้ลทั่วไป — AABB (1122), ABBA (1221), AAAA (1111)
+        /// ใช้กับทุกตัวเลข ไม่ hardcode 7766/2662/6688/1441
+        /// </summary>
+        private static string FixVanityDoublePattern(string digits, string letters)
         {
             if (digits.Length != MaxDigits)
                 return digits;
 
-            // 6680 → 6688
-            if (digits[0] == digits[1] && digits[2] != digits[3]
-                && digits[3] == '0' && IsLikelyDigitMisread('0', digits[2]))
-            {
-                return digits[..3] + digits[2];
-            }
-
-            // 6608 → 6688
-            if (digits[0] == digits[1] && digits[2] == '0' && digits[3] == digits[1]
-                && IsLikelyDigitMisread('0', digits[1]))
-            {
-                return $"{digits[0]}{digits[1]}{digits[1]}{digits[3]}";
-            }
-
-            return digits;
-        }
-
-        /// <summary>
-        /// ป้ายแดง 6กท 6688 — OCR อ่าน 6880 / 6808 / 6888 / 6850
-        /// </summary>
-        private static string FixAabb6688Family(string digits, string letters)
-        {
-            if (digits.Length != MaxDigits || IsAabbPattern(digits))
+            if (IsVanityDoublePattern(digits))
                 return digits;
 
-            // 6880 → 6688 (ขาด 6 ตัวที่ 2, ท้าย 0 แทน 8)
-            if (digits[0] == '6' && digits[1] == digits[2] && digits[1] != '6'
-                && digits[3] == '0' && IsLikelyDigitMisread('0', digits[1]))
-            {
-                return $"66{digits[1]}{digits[1]}";
-            }
-
-            // 6808 → 6688
-            if (digits[0] == '6' && digits[1] == digits[3] && digits[1] != '6'
-                && digits[2] == '0' && IsLikelyDigitMisread('0', '6'))
-            {
-                return $"66{digits[1]}{digits[1]}";
-            }
-
-            // 6888 → 6688 (ตัวที่ 2 ควรเป็น 6)
-            if (digits[0] == '6' && digits[1] == '8' && digits[2] == '8' && digits[3] == '8')
-                return "6688";
-
-            if (!IsRedPlateLetters(letters))
-                return digits;
-
-            // 6850 / 6860 — เฉพาะป้ายแดง 6xxx
-            if (digits[0] == '6' && digits.All(c => c is '0' or '5' or '6' or '8'))
-            {
-                const string target = "6688";
-                if (ScoreRedPlateAabbFit(digits, target) >= 5)
-                    return target;
-            }
-
-            return digits;
+            return SnapToBestVanityDouble(digits, letters);
         }
 
-        private static bool IsRedPlateLetters(string letters) =>
-            letters.Length >= 2 && letters[0] == '6';
+        private static bool IsVanityDoublePattern(string s) =>
+            s.Length == MaxDigits && (IsAabbPattern(s) || IsAbbaPattern(s) || s.All(c => c == s[0]));
 
-        private static int ScoreRedPlateAabbFit(string read, string candidate)
+        private static string SnapToBestVanityDouble(string digits, string letters)
         {
-            int score = ScorePatternFit(read, candidate);
-            for (int i = 0; i < read.Length; i++)
-            {
-                if (read[i] == candidate[i])
-                    continue;
-
-                if (read[i] == '5' && candidate[i] == '8')
-                    score += 1;
-                else if (read[i] == '8' && candidate[i] == '6')
-                    score += 1;
-            }
-
-            return score;
-        }
-
-        /// <summary>
-        /// 1441 / 4411 / 1412 — รูป ABBA (นอก-ใน-ใน-นอก)
-        /// 4411 → 1441 (สลับลำดับคู่), 1412 → 1441 (เลข 1/4 + noise 2/3)
-        /// </summary>
-        private static string FixAbbaPattern(string digits)
-        {
-            if (digits.Length != MaxDigits)
-                return digits;
-
-            if (IsAbbaPattern(digits))
-                return digits;
-
-            var counts = digits.GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
-            if (counts.Count == 2 && counts.Values.All(v => v == 2))
-            {
-                char[] pair = counts.Keys.ToArray();
-                string reordered = PickBestAbbaFromTwoPair(digits, pair[0], pair[1]);
-                if (reordered != digits)
-                    return reordered;
-            }
-
-            return TrySnap1441Family(digits);
-        }
-
-        private static string PickBestAbbaFromTwoPair(string digits, char a, char b)
-        {
-            string[] candidates =
-            {
-                digits,
-                $"{a}{b}{b}{a}",
-                $"{b}{a}{a}{b}",
-                $"{a}{a}{b}{b}",
-                $"{b}{b}{a}{a}"
-            };
-
             string best = digits;
-            int bestScore = ScorePatternFit(digits, digits);
+            int bestScore = ScoreVanityCandidate(digits, digits, letters);
 
-            foreach (string candidate in candidates.Distinct())
+            foreach (string candidate in BuildVanityDoubleCandidates(digits))
             {
-                int score = ScorePatternFit(digits, candidate);
-                if (score <= bestScore)
+                if (!IsVanityDoublePattern(candidate))
                     continue;
 
-                if (IsAbbaPattern(candidate) && score >= 6)
-                {
-                    bestScore = score;
-                    best = candidate;
-                }
+                int score = ScoreVanityCandidate(digits, candidate, letters);
+                if (score <= bestScore || score < MinVanitySnapScore)
+                    continue;
+
+                bestScore = score;
+                best = candidate;
             }
 
             return best;
         }
 
-        /// <summary>1412 / 1413 / 1411 — มี 1 กับ 4 อย่างน้อย 3 หลัก (noise ได้ 1 หลัก)</summary>
-        private static string TrySnap1441Family(string digits)
+        /// <summary>สร้าง candidate จากโครงสร้าง OCR + ชุดตัวเลขที่อ่านได้</summary>
+        private static IEnumerable<string> BuildVanityDoubleCandidates(string digits)
         {
-            int ones = digits.Count(c => c == '1');
-            int fours = digits.Count(c => c == '4');
-            int foreign = digits.Count(c => c is not '1' and not '4');
+            yield return digits;
 
-            if (ones < 2 || fours < 1 || foreign > 1)
-                return digits;
+            foreach (string partial in BuildStructuralVanityFixes(digits))
+                yield return partial;
 
-            string candidate = "1441";
-            if (ScorePatternFit(digits, candidate) >= 5)
-                return candidate;
+            var groups = digits.GroupBy(c => c).OrderByDescending(g => g.Count()).ToList();
+            char[] uniq = groups.Select(g => g.Key).ToArray();
 
-            return digits;
+            if (uniq.Length == 1)
+            {
+                yield return new string(uniq[0], MaxDigits);
+                yield break;
+            }
+
+            if (uniq.Length != 2)
+                yield break;
+
+            char a = uniq[0];
+            char b = uniq[1];
+
+            if (groups[0].Count() == 2 && groups[1].Count() == 2)
+            {
+                yield return $"{a}{a}{b}{b}";
+                yield return $"{b}{b}{a}{a}";
+                yield return $"{a}{b}{b}{a}";
+                yield return $"{b}{a}{a}{b}";
+            }
+            else if (groups[0].Count() == 3)
+            {
+                char dominant = groups[0].Key;
+                char minor = groups[1].Key;
+                yield return $"{minor}{minor}{dominant}{dominant}";
+                yield return $"{dominant}{dominant}{minor}{minor}";
+                yield return $"{minor}{dominant}{dominant}{minor}";
+                yield return $"{dominant}{minor}{minor}{dominant}";
+            }
         }
+
+        /// <summary>แก้จากรูปทรง OCR — ใช้ได้ทุกหลัก ไม่ผูกเลขใดเลขหนึ่ง</summary>
+        private static IEnumerable<string> BuildStructuralVanityFixes(string digits)
+        {
+            // ABBA: XY Y? → XYYX (เช่น 2660 → 2662)
+            if (digits[1] == digits[2] && digits[0] != digits[3]
+                && IsLikelyDigitMisread(digits[3], digits[0]))
+            {
+                yield return $"{digits[0]}{digits[1]}{digits[2]}{digits[0]}";
+            }
+
+            // AABB: XYYY → XXYY (เช่น 7666 → 7766)
+            if (digits[1] == digits[2] && digits[2] == digits[3] && digits[0] != digits[1])
+            {
+                yield return $"{digits[0]}{digits[0]}{digits[1]}{digits[1]}";
+            }
+
+            // AABB: XX Y? → XXYY
+            if (digits[0] == digits[1] && digits[2] != digits[3]
+                && IsLikelyDigitMisread(digits[3], digits[2]))
+            {
+                yield return $"{digits[0]}{digits[1]}{digits[2]}{digits[2]}";
+            }
+
+            // AABB: X? YY → XXYY
+            if (digits[0] != digits[1] && digits[2] == digits[3]
+                && IsLikelyDigitMisread(digits[1], digits[0]))
+            {
+                yield return $"{digits[0]}{digits[0]}{digits[2]}{digits[3]}";
+            }
+
+            // AABB: XX Y0 → XXYY
+            if (digits[0] == digits[1] && digits[2] != digits[3]
+                && digits[3] == '0' && IsLikelyDigitMisread('0', digits[2]))
+            {
+                yield return $"{digits[0]}{digits[1]}{digits[2]}{digits[2]}";
+            }
+
+            // AABB: XX 0Y → XXYY
+            if (digits[0] == digits[1] && digits[2] == '0' && digits[3] == digits[1]
+                && IsLikelyDigitMisread('0', digits[1]))
+            {
+                yield return $"{digits[0]}{digits[1]}{digits[1]}{digits[3]}";
+            }
+
+            // AABB: X YYY → XXYY (6888 → 6688)
+            if (digits[0] != digits[1] && digits[1] == digits[2] && digits[2] == digits[3]
+                && IsLikelyDigitMisread(digits[1], digits[0]))
+            {
+                yield return $"{digits[0]}{digits[0]}{digits[1]}{digits[1]}";
+            }
+        }
+
+        private static int ScoreVanityCandidate(string read, string candidate, string letters)
+        {
+            int score = ScorePatternFit(read, candidate);
+
+            if (read[0] == candidate[0])
+                score += 2;
+            if (read[1] == candidate[1])
+                score += 1;
+            if (read[2] == candidate[2])
+                score += 1;
+            if (read[3] == candidate[3])
+                score += 2;
+
+            if (IsAabbPattern(candidate))
+                score += 1;
+
+            if (IsRedPlateLetters(letters) && candidate[0] == '6' && IsVanityDoublePattern(candidate))
+                score += 1;
+
+            return score;
+        }
+
+        private static bool IsRedPlateLetters(string letters) =>
+            letters.Length >= 2 && letters[0] == '6';
 
         private static int ScorePatternFit(string read, string candidate)
         {
@@ -392,11 +395,11 @@ namespace ConsoleApp1
             {
                 '0' => read is '6' or '8',
                 '1' => read is '7' or '4' or '9',
-                '2' => read is '0' or '3' or '5' or '7',
+                '2' => read is '0' or '3' or '5' or '6' or '7',
                 '3' => read is '5' or '8' or '2',
                 '4' => read is '1' or '6' or '9',
                 '5' => read is '2' or '3' or '6',
-                '6' => read is '0' or '4' or '1' or '5' or '8',
+                '6' => read is '0' or '2' or '4' or '1' or '5' or '8',
                 '7' => read is '1' or '2',
                 '8' => read is '0' or '6' or '3' or '9',
                 '9' => read is '1' or '0' or '4' or '8',
@@ -427,7 +430,7 @@ namespace ConsoleApp1
                 return digits;
 
             // ฐฐ 69 ชัดเจน
-            if (letters == "ฐฐ")
+            if (letters == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(letters))
                 return digits[..2];
 
             if (IsSixNineTrailingNoise(digits))
@@ -448,6 +451,9 @@ namespace ConsoleApp1
             if (c2 == '0')
                 return true;
 
+            if (c2 == '1')
+                return true;
+
             if (c2 == '3' && c3 is '3' or '4')
                 return true;
 
@@ -463,12 +469,21 @@ namespace ConsoleApp1
             while (digits.Length > 0 && digits[0] == '0')
                 digits = digits[1..];
 
+            if (digits.Length >= 4 && digits[0] != digits[1])
+            {
+                string rest = digits[1..];
+                if (rest.Length == 3 && rest.All(c => c == rest[0]) && digits[0] != rest[0])
+                {
+                    string vanity = $"{digits[0]}{digits[0]}{rest[0]}{rest[0]}";
+                    if (IsAabbPattern(vanity))
+                        return vanity;
+                }
+            }
+
             if (digits.Length >= 4 && digits[0] is '1' or '2' or '7')
             {
                 string rest = digits[1..];
-                if (rest.Length >= 3 && rest.All(c => c == rest[0]))
-                    digits = rest;
-                else if (digits[0] == '7' && rest.Length >= 3 && rest.All(c => c == '6'))
+                if (rest.Length == 3 && rest.All(c => c == rest[0]))
                     digits = rest;
                 else
                 {
@@ -580,15 +595,17 @@ namespace ConsoleApp1
 
             string best = digits[..MaxDigits];
             int bestScore = ScoreDigitWindow(best);
+            int bestIndex = 0;
 
             for (int i = 1; i <= digits.Length - MaxDigits; i++)
             {
                 string window = digits.Substring(i, MaxDigits);
                 int score = ScoreDigitWindow(window);
-                if (score > bestScore)
+                if (score > bestScore || (score == bestScore && i < bestIndex))
                 {
                     bestScore = score;
                     best = window;
+                    bestIndex = i;
                 }
             }
 
@@ -601,16 +618,11 @@ namespace ConsoleApp1
                 return 0;
 
             int unique = window.Distinct().Count();
-            int score = unique * 100;
+            int score = unique * 50;
 
-            if (IsAabbPattern(window))
-                score += 30;
-
-            if (IsAbbaPattern(window))
-                score += 28;
-
-            if (window.All(c => c == window[0]))
-                score += 40;
+            // เลขเบิ้ล AABB/ABBA/AAAA ชนะ diversity สูง
+            if (IsVanityDoublePattern(window))
+                score += 100;
 
             return score;
         }
