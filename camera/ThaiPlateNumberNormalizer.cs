@@ -73,7 +73,7 @@ namespace ConsoleApp1
 
             FixLetterMisreads(letters);
 
-            string lettersFinal = letters.ToString();
+            string lettersFinal = ThaiPlateLetterConfusion.FixPrefix(letters.ToString());
             string digitsRaw = ExtractBestDigits(new string(digitChars.ToArray()));
             string digitsFinal = FinalizeDigits(digitsRaw, lettersFinal);
 
@@ -92,7 +92,7 @@ namespace ConsoleApp1
             if (leadingDigits.Length == 0)
                 return false;
 
-            if (leadingDigits.Length == 1 && (leadingDigits[0] == '1' || leadingDigits[0] == '2'))
+            if (leadingDigits.Length == 1 && (leadingDigits[0] == '1' || leadingDigits[0] == '2' || leadingDigits[0] == '0'))
                 return false;
 
             return leadingDigits.All(char.IsDigit);
@@ -113,10 +113,9 @@ namespace ConsoleApp1
             FixRedPlateLetters(letters, consonantStart);
             TrimLeadingNoiseConsonants(letters, consonantStart);
 
-            string consonants = letters.ToString(consonantStart, letters.Length - consonantStart);
+            ThaiPlateLetterConfusion.ApplyStringBuilderFixes(letters);
 
-            if (consonants == "รฐ")
-                letters[consonantStart] = 'ฐ';
+            string consonants = letters.ToString(consonantStart, letters.Length - consonantStart);
 
             if (consonants == "ว")
                 letters.Insert(consonantStart, 'ก');
@@ -154,30 +153,255 @@ namespace ConsoleApp1
             }
         }
 
-        private static string FinalizeDigits(string digits, string letters)
+        /// <summary>ปรับเลขหลัง parse/vote — ใช้ร่วมกับ PlateReadTracker ได้</summary>
+        internal static string RefineDigits(string digits, string letters)
         {
             if (string.IsNullOrEmpty(digits))
                 return string.Empty;
 
-            // 6660 / 2220 / 9990 — ท้าย 0 noise (ต้องทำก่อน early return len==4)
             digits = FixSameDigitTrailingZero(digits);
-
-            // ฐฐ 69 — OCR ต่อ 6903, 6933, 6934
             digits = TrimShortPlateExtension(digits, letters);
+            digits = FixHomogeneousOutlier(digits);
+            digits = FixAabbTrailingDigit(digits);
+            digits = FixAabb6688Family(digits, letters);
+            digits = FixAbbaPattern(digits);
 
-            // 666 → 6666 (เลขเดียวกัน 3 หลัก — ไม่แตะ 929)
             if (digits.Length == 3 && digits.All(c => c == digits[0]))
                 return new string(digits[0], MaxDigits);
 
-            // ครบ 4 หลัก mixed — เก็บตาม OCR (9299, 1441, 6688)
             if (digits.Length == MaxDigits)
                 return digits;
 
-            // 688 / 866 → 6688
             if (TryCompleteDoublePair(digits, out string pair))
                 return pair;
 
             return digits;
+        }
+
+        private static string FinalizeDigits(string digits, string letters) =>
+            RefineDigits(digits, letters);
+
+        /// <summary>
+        /// 6661 / 9919 / 2223 — 3 ใน 4 หลักเหมือนกัน และหลักที่เพี้ยนเป็น OCR ที่พบบ่อย
+        /// ไม่แตะ 9299 (2 ไม่ใช่ confusion ของ 9) หรือ 9911 (ไม่มี 3 หลักชนะ)
+        /// </summary>
+        private static string FixHomogeneousOutlier(string digits)
+        {
+            if (digits.Length != MaxDigits)
+                return digits;
+
+            var groups = digits.GroupBy(c => c).OrderByDescending(g => g.Count()).ToList();
+            if (groups[0].Count() < 3)
+                return digits;
+
+            char dominant = groups[0].Key;
+            var outliers = groups.Where(g => g.Key != dominant).SelectMany(g => g).ToList();
+            if (outliers.Count != 1)
+                return digits;
+
+            char outlier = outliers[0];
+            if (!IsLikelyDigitMisread(outlier, dominant))
+                return digits;
+
+            return digits.Replace(outlier, dominant);
+        }
+
+        /// <summary>6680 / 6608 — AABB แต่ท้าย/กลางเป็น 0 แทน 6 หรือ 8</summary>
+        private static string FixAabbTrailingDigit(string digits)
+        {
+            if (digits.Length != MaxDigits)
+                return digits;
+
+            // 6680 → 6688
+            if (digits[0] == digits[1] && digits[2] != digits[3]
+                && digits[3] == '0' && IsLikelyDigitMisread('0', digits[2]))
+            {
+                return digits[..3] + digits[2];
+            }
+
+            // 6608 → 6688
+            if (digits[0] == digits[1] && digits[2] == '0' && digits[3] == digits[1]
+                && IsLikelyDigitMisread('0', digits[1]))
+            {
+                return $"{digits[0]}{digits[1]}{digits[1]}{digits[3]}";
+            }
+
+            return digits;
+        }
+
+        /// <summary>
+        /// ป้ายแดง 6กท 6688 — OCR อ่าน 6880 / 6808 / 6888 / 6850
+        /// </summary>
+        private static string FixAabb6688Family(string digits, string letters)
+        {
+            if (digits.Length != MaxDigits || IsAabbPattern(digits))
+                return digits;
+
+            // 6880 → 6688 (ขาด 6 ตัวที่ 2, ท้าย 0 แทน 8)
+            if (digits[0] == '6' && digits[1] == digits[2] && digits[1] != '6'
+                && digits[3] == '0' && IsLikelyDigitMisread('0', digits[1]))
+            {
+                return $"66{digits[1]}{digits[1]}";
+            }
+
+            // 6808 → 6688
+            if (digits[0] == '6' && digits[1] == digits[3] && digits[1] != '6'
+                && digits[2] == '0' && IsLikelyDigitMisread('0', '6'))
+            {
+                return $"66{digits[1]}{digits[1]}";
+            }
+
+            // 6888 → 6688 (ตัวที่ 2 ควรเป็น 6)
+            if (digits[0] == '6' && digits[1] == '8' && digits[2] == '8' && digits[3] == '8')
+                return "6688";
+
+            if (!IsRedPlateLetters(letters))
+                return digits;
+
+            // 6850 / 6860 — เฉพาะป้ายแดง 6xxx
+            if (digits[0] == '6' && digits.All(c => c is '0' or '5' or '6' or '8'))
+            {
+                const string target = "6688";
+                if (ScoreRedPlateAabbFit(digits, target) >= 5)
+                    return target;
+            }
+
+            return digits;
+        }
+
+        private static bool IsRedPlateLetters(string letters) =>
+            letters.Length >= 2 && letters[0] == '6';
+
+        private static int ScoreRedPlateAabbFit(string read, string candidate)
+        {
+            int score = ScorePatternFit(read, candidate);
+            for (int i = 0; i < read.Length; i++)
+            {
+                if (read[i] == candidate[i])
+                    continue;
+
+                if (read[i] == '5' && candidate[i] == '8')
+                    score += 1;
+                else if (read[i] == '8' && candidate[i] == '6')
+                    score += 1;
+            }
+
+            return score;
+        }
+
+        /// <summary>
+        /// 1441 / 4411 / 1412 — รูป ABBA (นอก-ใน-ใน-นอก)
+        /// 4411 → 1441 (สลับลำดับคู่), 1412 → 1441 (เลข 1/4 + noise 2/3)
+        /// </summary>
+        private static string FixAbbaPattern(string digits)
+        {
+            if (digits.Length != MaxDigits)
+                return digits;
+
+            if (IsAbbaPattern(digits))
+                return digits;
+
+            var counts = digits.GroupBy(c => c).ToDictionary(g => g.Key, g => g.Count());
+            if (counts.Count == 2 && counts.Values.All(v => v == 2))
+            {
+                char[] pair = counts.Keys.ToArray();
+                string reordered = PickBestAbbaFromTwoPair(digits, pair[0], pair[1]);
+                if (reordered != digits)
+                    return reordered;
+            }
+
+            return TrySnap1441Family(digits);
+        }
+
+        private static string PickBestAbbaFromTwoPair(string digits, char a, char b)
+        {
+            string[] candidates =
+            {
+                digits,
+                $"{a}{b}{b}{a}",
+                $"{b}{a}{a}{b}",
+                $"{a}{a}{b}{b}",
+                $"{b}{b}{a}{a}"
+            };
+
+            string best = digits;
+            int bestScore = ScorePatternFit(digits, digits);
+
+            foreach (string candidate in candidates.Distinct())
+            {
+                int score = ScorePatternFit(digits, candidate);
+                if (score <= bestScore)
+                    continue;
+
+                if (IsAbbaPattern(candidate) && score >= 6)
+                {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>1412 / 1413 / 1411 — มี 1 กับ 4 อย่างน้อย 3 หลัก (noise ได้ 1 หลัก)</summary>
+        private static string TrySnap1441Family(string digits)
+        {
+            int ones = digits.Count(c => c == '1');
+            int fours = digits.Count(c => c == '4');
+            int foreign = digits.Count(c => c is not '1' and not '4');
+
+            if (ones < 2 || fours < 1 || foreign > 1)
+                return digits;
+
+            string candidate = "1441";
+            if (ScorePatternFit(digits, candidate) >= 5)
+                return candidate;
+
+            return digits;
+        }
+
+        private static int ScorePatternFit(string read, string candidate)
+        {
+            if (read.Length != candidate.Length)
+                return 0;
+
+            int score = 0;
+            for (int i = 0; i < read.Length; i++)
+            {
+                if (read[i] == candidate[i])
+                    score += 2;
+                else if (IsLikelyDigitMisread(read[i], candidate[i]))
+                    score += 1;
+            }
+
+            return score;
+        }
+
+        private static bool IsAbbaPattern(string s) =>
+            s.Length == MaxDigits && s[0] == s[3] && s[1] == s[2] && s[0] != s[1];
+
+        internal static bool IsLikelyDigitMisreadForVote(char read, char expected) =>
+            IsLikelyDigitMisread(read, expected);
+
+        private static bool IsLikelyDigitMisread(char read, char expected)
+        {
+            if (read == expected)
+                return false;
+
+            return expected switch
+            {
+                '0' => read is '6' or '8',
+                '1' => read is '7' or '4' or '9',
+                '2' => read is '0' or '3' or '5' or '7',
+                '3' => read is '5' or '8' or '2',
+                '4' => read is '1' or '6' or '9',
+                '5' => read is '2' or '3' or '6',
+                '6' => read is '0' or '4' or '1' or '5' or '8',
+                '7' => read is '1' or '2',
+                '8' => read is '0' or '6' or '3' or '9',
+                '9' => read is '1' or '0' or '4' or '8',
+                _ => false
+            };
         }
 
         /// <summary>6660, 2220, 9990 → 6666, 2222, 9999</summary>
@@ -239,11 +463,19 @@ namespace ConsoleApp1
             while (digits.Length > 0 && digits[0] == '0')
                 digits = digits[1..];
 
-            if (digits.Length >= 4 && digits[0] is '1' or '2')
+            if (digits.Length >= 4 && digits[0] is '1' or '2' or '7')
             {
                 string rest = digits[1..];
-                if (rest.Length >= 3 && rest.Take(3).All(c => c == rest[0]))
+                if (rest.Length >= 3 && rest.All(c => c == rest[0]))
                     digits = rest;
+                else if (digits[0] == '7' && rest.Length >= 3 && rest.All(c => c == '6'))
+                    digits = rest;
+                else
+                {
+                    string refined = FixSameDigitTrailingZero(rest);
+                    if (refined.Length == MaxDigits && refined.All(c => c == refined[0]))
+                        digits = refined;
+                }
             }
 
             return digits;
@@ -302,18 +534,39 @@ namespace ConsoleApp1
         private static string CollapseOcrDigitRuns(string digits)
         {
             var runs = MergeAdjacentRuns(GetRuns(digits));
-            var sb = new StringBuilder(digits.Length);
+            if (runs.Count == 0)
+                return string.Empty;
 
+            // 696969... → 69 (ไม่ตัด 6666 → 66 อีก)
+            if (runs.Count >= 2 && digits.Length >= 6)
+            {
+                bool alternating = true;
+                for (int i = 0; i < runs.Count - 1; i++)
+                {
+                    if (runs[i].Ch == runs[i + 1].Ch)
+                    {
+                        alternating = false;
+                        break;
+                    }
+                }
+
+                if (alternating && runs.All(r => r.Len >= 2))
+                {
+                    var shortPlate = new StringBuilder(runs.Count);
+                    foreach (var (ch, _) in runs)
+                        shortPlate.Append(ch);
+                    return shortPlate.ToString();
+                }
+            }
+
+            var sb = new StringBuilder(digits.Length);
             foreach (var (ch, len) in runs)
             {
-                int uniqueCount = digits.Where(char.IsDigit).Select(c => c).Distinct().Count();
                 int cap = len >= HomogeneousSpamRun
                     ? MaxDigits
-                    : uniqueCount <= 2 && len >= 4
-                        ? 2
-                        : len;
+                    : Math.Min(len, MaxDigits);
 
-                sb.Append(new string(ch, Math.Min(len, cap)));
+                sb.Append(new string(ch, cap));
             }
 
             return sb.ToString();
@@ -352,6 +605,9 @@ namespace ConsoleApp1
 
             if (IsAabbPattern(window))
                 score += 30;
+
+            if (IsAbbaPattern(window))
+                score += 28;
 
             if (window.All(c => c == window[0]))
                 score += 40;

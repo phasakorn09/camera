@@ -144,7 +144,18 @@ namespace ConsoleApp1
                 lock (_resultsLock)
                 {
                     dets = new List<Detection>(_lastDetections);
-                    previews = new List<PlateOcrPreview>(_lastOcrPreviews);
+                    previews = new List<PlateOcrPreview>(_lastOcrPreviews.Count);
+                    foreach (var p in _lastOcrPreviews)
+                    {
+                        if (p.Image.IsDisposed || p.Image.Empty())
+                            continue;
+
+                        previews.Add(new PlateOcrPreview(
+                            p.Image,
+                            p.PlateNumber,
+                            p.Province,
+                            p.DetectConfidence));
+                    }
                 }
 
                 foreach (var det in dets)
@@ -209,6 +220,7 @@ namespace ConsoleApp1
                     HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 230, 0), thickness: 1);
 
                 using var composite = ComposeFrameWithOcrPanel(showFrame, previews);
+                DisposeOcrPreviews(previews);
                 Cv2.ImShow(windowName, composite);
 
                 // WaitKey เรียกครั้งเดียวต่อเฟรม (ลดจาก 2 ครั้งในโค้ดเดิม)
@@ -324,6 +336,7 @@ namespace ConsoleApp1
                             det.PlateNumber,
                             det.Province,
                             det.Confidence));
+                        previewImage.Dispose();
                     }
 
                     if (!string.IsNullOrWhiteSpace(det.PlateNumber) || !string.IsNullOrWhiteSpace(det.Province))
@@ -374,7 +387,7 @@ namespace ConsoleApp1
             for (int i = 0; i < count; i++)
             {
                 var preview = previews[i];
-                if (preview.Image.Empty())
+                if (preview.Image.IsDisposed || preview.Image.Empty())
                     continue;
 
                 using var previewCopy = preview.Image.Clone();

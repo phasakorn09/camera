@@ -10,9 +10,9 @@ namespace ConsoleApp1
     {
         private const float MatchIou = 0.35f;
         private const int MaxTracks = 8;
-        private const int MaxSamplesPerTrack = 24;
-        private const int MinVotes = 3;
-        private const int MaxMissFrames = 8;
+        private const int MaxSamplesPerTrack = 36;
+        private const int MinVotes = 4;
+        private const int MaxMissFrames = 12;
 
         private readonly List<Track> _tracks = new();
 
@@ -80,22 +80,20 @@ namespace ConsoleApp1
             if (samples.Count < MinVotes)
                 return (fallbackPlate, fallbackProvince);
 
-            string? prefixWinner = samples
-                .Select(s => ParsePlate(s.Plate).Letters)
-                .Where(p => !string.IsNullOrEmpty(p))
-                .GroupBy(p => p)
-                .OrderByDescending(g => g.Count())
-                .Select(g => g.Key)
-                .FirstOrDefault();
+            string? prefixWinner = ThaiPlateLetterConfusion.VotePrefix(
+                samples.Select(s => (
+                    ParsePlate(s.Plate).Letters,
+                    Math.Max(0.05f, s.DetectConfidence))));
 
             if (string.IsNullOrEmpty(prefixWinner))
                 return VoteExactPlate(samples, fallbackPlate, fallbackProvince);
 
             var related = samples
-                .Where(s => ParsePlate(s.Plate).Letters == prefixWinner)
+                .Where(s => ThaiPlateLetterConfusion.PrefixMatches(ParsePlate(s.Plate).Letters, prefixWinner))
                 .ToList();
 
-            string votedDigits = VoteDigitsPositionally(related);
+            string votedDigits = VoteDigitsPositionally(related, prefixWinner);
+            votedDigits = ThaiPlateNumberNormalizer.RefineDigits(votedDigits, prefixWinner);
             votedDigits = TrimVotedDigitLength(prefixWinner, votedDigits);
             string votedPlate = string.IsNullOrEmpty(votedDigits)
                 ? fallbackPlate
@@ -142,46 +140,85 @@ namespace ConsoleApp1
             return (plate, province);
         }
 
-        /// <summary>vote ทีละหลัก — 9299 ชนะ 9999 ถ้ามีเฟรมที่อ่าน 2 ได้</summary>
-        private static string VoteDigitsPositionally(List<Sample> samples)
+        /// <summary>vote ทีละหลักจากขวา — เลขท้ายเสถียรกว่า; ถ่วงน้ำหนัก detect confidence</summary>
+        private static string VoteDigitsPositionally(List<Sample> samples, string letters)
         {
-            var digitStrings = samples
-                .Select(s => ParsePlate(s.Plate).Digits)
-                .Where(d => d.Length > 0)
+            var digitSamples = samples
+                .Select(s => (Digits: ParsePlate(s.Plate).Digits, Weight: Math.Max(0.05f, s.DetectConfidence)))
+                .Where(x => x.Digits.Length > 0)
                 .ToList();
 
-            if (digitStrings.Count == 0)
+            if (digitSamples.Count == 0)
                 return string.Empty;
 
-            int maxLen = digitStrings.Max(d => d.Length);
-            if (maxLen == 0)
+            int targetLen = VoteTargetDigitLength(digitSamples, letters);
+            if (targetLen <= 0)
                 return string.Empty;
 
-            var sb = new System.Text.StringBuilder(maxLen);
-            for (int pos = 0; pos < maxLen; pos++)
+            var sb = new System.Text.StringBuilder(targetLen);
+            for (int posFromRight = 0; posFromRight < targetLen; posFromRight++)
             {
-                var votes = new Dictionary<char, int>();
-                foreach (string d in digitStrings)
+                var votes = new Dictionary<char, float>();
+                foreach (var (digits, weight) in digitSamples)
                 {
-                    if (pos >= d.Length)
+                    int idx = digits.Length - 1 - posFromRight;
+                    if (idx < 0)
                         continue;
 
-                    char c = d[pos];
-                    votes[c] = votes.GetValueOrDefault(c) + 1;
+                    char c = digits[idx];
+                    votes[c] = votes.GetValueOrDefault(c) + weight;
+
+                    // 1↔4 สลับกันบ่อยบนป้าย ABBA เช่น 1441
+                    if (c == '1' || c == '4')
+                    {
+                        char alt = c == '1' ? '4' : '1';
+                        votes[alt] = votes.GetValueOrDefault(alt) + weight * 0.35f;
+                    }
+
+                    // ป้ายแดง 6688 — 6 กับ 8 สลับตำแหน่งบ่อย
+                    if (letters.StartsWith("6") && letters.Length >= 2 && (c == '6' || c == '8'))
+                    {
+                        int posFromLeft = targetLen - 1 - posFromRight;
+                        char expected = posFromLeft <= 1 ? '6' : '8';
+                        if (c != expected)
+                            votes[expected] = votes.GetValueOrDefault(expected) + weight * 0.45f;
+                    }
                 }
 
                 if (votes.Count == 0)
                     continue;
 
-                char winner = votes
-                    .OrderByDescending(kv => kv.Value)
-                    .First().Key;
-
-                sb.Append(winner);
+                char winner = PickWeightedDigitWinner(votes);
+                sb.Insert(0, winner);
             }
 
             return sb.ToString();
         }
+
+        private static int VoteTargetDigitLength(
+            List<(string Digits, float Weight)> digitSamples,
+            string letters)
+        {
+            if (letters == "ฐฐ")
+                return 2;
+
+            var lengthVotes = new Dictionary<int, float>();
+            foreach (var (digits, weight) in digitSamples)
+            {
+                int len = Math.Min(digits.Length, 4);
+                lengthVotes[len] = lengthVotes.GetValueOrDefault(len) + weight;
+            }
+
+            int bestLen = lengthVotes
+                .OrderByDescending(kv => kv.Value)
+                .ThenByDescending(kv => kv.Key)
+                .First().Key;
+
+            return Math.Clamp(bestLen, 1, 4);
+        }
+
+        private static char PickWeightedDigitWinner(Dictionary<char, float> votes) =>
+            votes.OrderByDescending(kv => kv.Value).First().Key;
 
         /// <summary>ฐฐ → 69 ไม่ใช่ 6933</summary>
         private static string TrimVotedDigitLength(string letters, string voted)

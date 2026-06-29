@@ -9,6 +9,69 @@ namespace ConsoleApp1
         private const int MinPlateWidth = 200;
         private const int TargetPlateWidth = 320;
         private const double FallbackTopLineRatio = 0.55;
+        private const double BlurVarianceThreshold = 18.0;
+
+        /// <summary>วัดความเบลอ — ค่าต่ำ = เบลอ (Laplacian variance)</summary>
+        public static bool IsBlurry(Mat bgr)
+        {
+            if (bgr.Empty() || bgr.Width < 8 || bgr.Height < 8)
+                return true;
+
+            using var gray = new Mat();
+            Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
+            using var laplacian = new Mat();
+            Cv2.Laplacian(gray, laplacian, MatType.CV_64F);
+            Cv2.MeanStdDev(laplacian, out _, out Scalar stddev);
+            return stddev.Val0 < BlurVarianceThreshold;
+        }
+
+        /// <summary>sharpen เบา — ใช้ retry OCR เมื่อภาพไม่ชัด</summary>
+        public static Mat SharpenForOcr(Mat bgr, double amount = 0.55)
+        {
+            var result = bgr.Clone();
+            using var blurred = new Mat();
+            Cv2.GaussianBlur(result, blurred, new Size(0, 0), 2.5);
+            Cv2.AddWeighted(result, 1.0 + amount, blurred, -amount, 0, result);
+            return result;
+        }
+
+        /// <summary>ลด noise รักษาขอบ — เหมาะกับป้ายเบลอ/แสงน้อย</summary>
+        public static Mat DenoiseForOcr(Mat bgr)
+        {
+            var result = new Mat();
+            Cv2.BilateralFilter(bgr, result, d: 5, sigmaColor: 45, sigmaSpace: 45);
+            return result;
+        }
+
+        private static void EnhanceBlurryPlate(Mat work)
+        {
+            if (work.Empty())
+                return;
+
+            bool blurry = IsBlurry(work);
+            if (!blurry && work.Width >= MinPlateWidth)
+                return;
+
+            using (var denoised = DenoiseForOcr(work))
+                denoised.CopyTo(work);
+
+            if (blurry && work.Width < TargetPlateWidth)
+            {
+                double scale = Math.Min(1.6, TargetPlateWidth / (double)work.Width);
+                if (scale > 1.05)
+                {
+                    Cv2.Resize(work, work, new Size(), scale, scale, InterpolationFlags.Cubic);
+                }
+            }
+
+            if (blurry)
+            {
+                using var sharp = SharpenForOcr(work);
+                sharp.CopyTo(work);
+                using var enhanced = ApplyClaheBgr(work, clipLimit: 2.4);
+                enhanced.CopyTo(work);
+            }
+        }
 
         /// <summary>CLAHE บน BGR — ใช้ก่อน detect เพื่อให้ขอบป้ายสีๆ ชัดขึ้น</summary>
         public static Mat ApplyClaheBgr(Mat bgr, double clipLimit = 2.0)
@@ -79,6 +142,8 @@ namespace ConsoleApp1
 
             using var trimmed = TrimContentBorder(work);
             trimmed.CopyTo(work);
+
+            EnhanceBlurryPlate(work);
 
             return work;
         }

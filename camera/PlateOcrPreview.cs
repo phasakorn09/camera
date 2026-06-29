@@ -12,12 +12,16 @@ namespace ConsoleApp1
 
         public PlateOcrPreview(Mat image, string plateNumber, string province, float detectConfidence)
         {
-            Image = image;
+            Image = image.Clone();
             PlateNumber = plateNumber;
             Province = province;
             DetectConfidence = detectConfidence;
         }
 
-        public void Dispose() => Image.Dispose();
+        public void Dispose()
+        {
+            if (!Image.IsDisposed)
+                Image.Dispose();
+        }
     }
 }

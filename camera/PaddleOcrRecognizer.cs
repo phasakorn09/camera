@@ -108,21 +108,185 @@ namespace ConsoleApp1
             if (lineBgr.Empty() || lineBgr.Height < 4 || lineBgr.Width < 4)
                 return string.Empty;
 
-            using var prepared = PreprocessLine(lineBgr);
-            var inputData = BuildInputTensor(prepared);
+            var (text, score) = TryRecognizeLineOnce(lineBgr, isProvinceLine);
+            if (IsStrongRead(text, score))
+                return text;
 
+            using var sharpLine = PlateImagePreprocessor.SharpenForOcr(lineBgr);
+            var (sharpText, sharpScore) = TryRecognizeLineOnce(sharpLine, isProvinceLine);
+            if (sharpScore > score)
+                return sharpText;
+
+            if (string.IsNullOrWhiteSpace(text))
+                return sharpText;
+
+            return text;
+        }
+
+        private static bool IsStrongRead(string text, float score) =>
+            !string.IsNullOrWhiteSpace(text) && text.Length >= 2 && score >= -1.2f;
+
+        private (string Text, float Score) TryRecognizeLineOnce(Mat lineBgr, bool isProvinceLine)
+        {
+            using var prepared = PreprocessLine(lineBgr);
+            bool blurry = PlateImagePreprocessor.IsBlurry(lineBgr);
+
+            using var outputs = RunInference(prepared);
+            var logits = outputs[0].AsTensor<float>();
+
+            var (peakText, peakScore, mergedPeaks) = DecodeCtcWithRepeats(logits, blurry);
+            var (stdText, stdScore) = DecodeCtcStandardWithScore(logits);
+
+            string raw = PickBestRawDecode(peakText, peakScore, stdText, stdScore);
+            float score = Math.Max(peakScore, stdScore);
+
+            if (!isProvinceLine && mergedPeaks != null && mergedPeaks.Count > 0)
+                raw = ResolvePlateLineAmbiguity(logits, mergedPeaks, raw);
+
+            string normalized = isProvinceLine
+                ? NormalizeProvince(raw)
+                : ThaiPlateNumberNormalizer.Normalize(raw);
+
+            if (!string.IsNullOrWhiteSpace(normalized))
+                return (normalized, score + normalized.Length * 0.05f);
+
+            return (normalized, score);
+        }
+
+        private IDisposableReadOnlyCollection<DisposableNamedOnnxValue> RunInference(Mat prepared)
+        {
+            var inputData = BuildInputTensor(prepared);
             var inputShape = new[] { 1, 3, InputHeight, MaxInputWidth };
             var inputTensor = new DenseTensor<float>(inputData, inputShape);
             var inputs = new List<NamedOnnxValue>
             {
                 NamedOnnxValue.CreateFromTensor(_inputName, inputTensor)
             };
+            return _session.Run(inputs);
+        }
 
-            using var outputs = _session.Run(inputs);
-            var logits = outputs[0].AsTensor<float>();
-            string raw = DecodeCtcWithRepeats(logits);
+        private static string PickBestRawDecode(string peak, float peakScore, string standard, float stdScore)
+        {
+            if (string.IsNullOrEmpty(peak))
+                return standard;
+            if (string.IsNullOrEmpty(standard))
+                return peak;
 
-            return isProvinceLine ? NormalizeProvince(raw) : ThaiPlateNumberNormalizer.Normalize(raw);
+            if (peak.Length > standard.Length && peakScore >= stdScore - 0.8f)
+                return peak;
+            if (standard.Length > peak.Length && stdScore >= peakScore - 0.8f)
+                return standard;
+
+            return peakScore >= stdScore ? peak : standard;
+        }
+
+        /// <summary>ลองสลับพยัญชนะที่คล้ายกัน (ฆ/ค/ก) เมื่อ logit ใกล้เคียง</summary>
+        private string ResolvePlateLineAmbiguity(
+            Tensor<float> logits,
+            List<(int Time, int ClassIdx, float Score)> peaks,
+            string initialRaw)
+        {
+            string bestRaw = initialRaw;
+            string bestNorm = ThaiPlateNumberNormalizer.Normalize(initialRaw);
+            float bestScore = ScorePlateLineCandidate(bestNorm, peaks);
+
+            const float margin = 2.2f;
+
+            for (int i = 0; i < peaks.Count; i++)
+            {
+                char current = ClassIndexToChar(peaks[i].ClassIdx);
+                if (current == '\0')
+                    continue;
+
+                foreach (char alt in ThaiPlateLetterConfusion.GetPartners(current))
+                {
+                    int altIdx = CharToClassIndex(alt);
+                    if (altIdx <= 0)
+                        continue;
+
+                    float altLogit = logits[0, peaks[i].Time, altIdx];
+                    if (altLogit < peaks[i].Score - margin)
+                        continue;
+
+                    var trialPeaks = peaks.ToList();
+                    trialPeaks[i] = (peaks[i].Time, altIdx, altLogit);
+                    string trialRaw = BuildTextFromPeaks(trialPeaks);
+                    string trialNorm = ThaiPlateNumberNormalizer.Normalize(trialRaw);
+                    float trialScore = ScorePlateLineCandidate(trialNorm, trialPeaks);
+
+                    if (trialScore > bestScore && !string.IsNullOrWhiteSpace(trialNorm))
+                    {
+                        bestScore = trialScore;
+                        bestRaw = trialRaw;
+                        bestNorm = trialNorm;
+                    }
+                }
+            }
+
+            return bestRaw;
+        }
+
+        private static float ScorePlateLineCandidate(
+            string normalized,
+            List<(int Time, int ClassIdx, float Score)> peaks)
+        {
+            if (string.IsNullOrWhiteSpace(normalized))
+                return float.MinValue;
+
+            int letterCount = normalized.TakeWhile(c => c != ' ').Count(c => c >= '\u0E01' && c <= '\u0E2E');
+            if (letterCount == 0)
+                letterCount = normalized.Count(c => c >= '\u0E01' && c <= '\u0E2E');
+
+            float peakAvg = peaks.Count > 0 ? peaks.Average(p => p.Score) : -5f;
+            return peakAvg + letterCount * 0.35f + normalized.Length * 0.05f;
+        }
+
+        private int CharToClassIndex(char c)
+        {
+            string target = c.ToString();
+            for (int i = 0; i < _alphabet.Count; i++)
+            {
+                if (_alphabet[i] == target)
+                    return i + 1;
+            }
+
+            return 0;
+        }
+
+        private char ClassIndexToChar(int classIdx)
+        {
+            int dictIdx = classIdx - 1;
+            if (dictIdx < 0 || dictIdx >= _alphabet.Count || _alphabet[dictIdx].Length != 1)
+                return '\0';
+
+            return _alphabet[dictIdx][0];
+        }
+
+        private static Mat PreprocessLine(Mat lineBgr)
+        {
+            var result = lineBgr.Clone();
+
+            int targetHeight = result.Height < 24 ? 64 : 48;
+            if (result.Height < targetHeight)
+            {
+                double scale = targetHeight / (double)result.Height;
+                Cv2.Resize(result, result, new Size(), scale, scale, InterpolationFlags.Cubic);
+            }
+
+            if (PlateImagePreprocessor.IsBlurry(result))
+            {
+                using var denoised = PlateImagePreprocessor.DenoiseForOcr(result);
+                denoised.CopyTo(result);
+            }
+
+            using var gray = new Mat();
+            Cv2.CvtColor(result, gray, ColorConversionCodes.BGR2GRAY);
+            double clip = PlateImagePreprocessor.IsBlurry(result) ? 3.0 : 2.5;
+            using var clahe = Cv2.CreateCLAHE(clipLimit: clip, tileGridSize: new Size(8, 8));
+            clahe.Apply(gray, gray);
+            Cv2.CvtColor(gray, result, ColorConversionCodes.GRAY2BGR);
+
+            return result;
         }
 
         /// <summary>
@@ -149,26 +313,6 @@ namespace ConsoleApp1
             if (c >= '\u0E30' && c <= '\u0E3A') return true; // สระ ะ ั า ำ ิ ี ฯลฯ
             if (c >= '\u0E40' && c <= '\u0E4E') return true; // เ แ โ ใ ไ + วรรณยุกต์
             return false;
-        }
-
-        private static Mat PreprocessLine(Mat lineBgr)
-        {
-            var result = lineBgr.Clone();
-
-            int targetHeight = result.Height < 24 ? 64 : 48;
-            if (result.Height < targetHeight)
-            {
-                double scale = targetHeight / (double)result.Height;
-                Cv2.Resize(result, result, new Size(), scale, scale, InterpolationFlags.Cubic);
-            }
-
-            using var gray = new Mat();
-            Cv2.CvtColor(result, gray, ColorConversionCodes.BGR2GRAY);
-            using var clahe = Cv2.CreateCLAHE(clipLimit: 2.5, tileGridSize: new Size(8, 8));
-            clahe.Apply(gray, gray);
-            Cv2.CvtColor(gray, result, ColorConversionCodes.GRAY2BGR);
-
-            return result;
         }
 
         private static float[] BuildInputTensor(Mat bgrImage)
@@ -203,17 +347,16 @@ namespace ConsoleApp1
 
         /// <summary>
         /// Peak-based CTC decode — รองรับตัวอักษร/เลขซ้ำ (เช่น 1122)
-        /// หา local maximum ของแต่ละ class ตาม time axis แทนการ collapse แบบ greedy
         /// </summary>
-        private string DecodeCtcWithRepeats(Tensor<float> logits)
+        private (string Text, float Score, List<(int Time, int ClassIdx, float Score)>? Peaks) DecodeCtcWithRepeats(
+            Tensor<float> logits, bool blurryImage)
         {
             int timeSteps = logits.Dimensions[1];
             if (timeSteps == 0)
-                return string.Empty;
+                return (string.Empty, float.MinValue, null);
 
-            const float minPeakScore = -2f;
-            // gap เล็ก = รวม peak ซ้ำใน glyph เดียว; ไม่รวมเลขซ้ำคนละตำแหน่ง (6688 ต้องได้ 4 หลัก)
-            const int minPeakGap = 4;
+            float minPeakScore = blurryImage ? -3.0f : -2.0f;
+            int minPeakGap = blurryImage ? 3 : 4;
 
             var peaks = new List<(int Time, int ClassIdx, float Score)>();
 
@@ -242,9 +385,11 @@ namespace ConsoleApp1
             }
 
             if (peaks.Count == 0)
-                return DecodeCtcStandard(logits);
+            {
+                var std = DecodeCtcStandardWithScore(logits);
+                return (std.Text, std.Score, null);
+            }
 
-            // merge peaks ใกล้กันเกินไปของ class เดียวกัน (noise) — เก็บ peak ที่ score สูงกว่า
             var merged = new List<(int Time, int ClassIdx, float Score)>();
             foreach (var peak in peaks.OrderBy(p => p.Time))
             {
@@ -262,18 +407,21 @@ namespace ConsoleApp1
             }
 
             string peakText = BuildTextFromPeaks(merged);
+            float peakScore = merged.Count > 0 ? merged.Average(p => p.Score) : float.MinValue;
 
             if (!string.IsNullOrEmpty(peakText))
-                return peakText;
+                return (peakText, peakScore, merged);
 
-            return DecodeCtcStandard(logits);
+            var fallback = DecodeCtcStandardWithScore(logits);
+            return (fallback.Text, fallback.Score, null);
         }
 
         /// <summary>CTC greedy มาตรฐาน — fallback</summary>
-        private string DecodeCtcStandard(Tensor<float> logits)
+        private (string Text, float Score) DecodeCtcStandardWithScore(Tensor<float> logits)
         {
             int timeSteps = logits.Dimensions[1];
             var text = new StringBuilder();
+            var scores = new List<float>();
             int prev = -1;
 
             for (int t = 0; t < timeSteps; t++)
@@ -300,14 +448,21 @@ namespace ConsoleApp1
                 {
                     int dictIdx = bestIdx - 1;
                     if (dictIdx >= 0 && dictIdx < _alphabet.Count)
+                    {
                         text.Append(_alphabet[dictIdx]);
+                        scores.Add(bestScore);
+                    }
                 }
 
                 prev = bestIdx;
             }
 
-            return text.ToString().Trim();
+            float avg = scores.Count > 0 ? scores.Average() : float.MinValue;
+            return (text.ToString().Trim(), avg);
         }
+
+        private string DecodeCtcStandard(Tensor<float> logits) =>
+            DecodeCtcStandardWithScore(logits).Text;
 
         private string BuildTextFromPeaks(List<(int Time, int ClassIdx, float Score)> peaks)
         {
