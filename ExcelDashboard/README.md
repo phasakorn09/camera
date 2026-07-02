@@ -12,7 +12,7 @@
 | IIS Express Port | **51235** |
 | Start Page | **index.aspx** |
 | ไฟล์ Excel | `App_Data/test4.xlsx` |
-| Path แนะนำ (Windows) | `C:\ExcelDashboard\` |
+| Path โปรเจกต์ (Windows) | `C:\Users\Wiwat.L\source\repos\ExcelDashboard\` |
 
 ## โครงสร้างข้อมูลใน Excel (Sheet1)
 
@@ -27,10 +27,27 @@
 
 ## วิธีรันด้วย Visual Studio 2026
 
-### ขั้นที่ 1 — คัดลอกโปรเจกต์ไปที่ C:\
+### ขั้นที่ 1 — Clone โปรเจกต์ไปที่ source\repos
+
+เปิด **PowerShell** หรือ **Command Prompt** แล้วรัน:
+
+```powershell
+cd C:\Users\Wiwat.L\source\repos
+git clone -b cursor/aspnet-excel-dashboard-7d51 https://github.com/phasakorn09/camera.git ExcelDashboard
+cd ExcelDashboard
+```
+
+> ถ้า clone ไว้แล้ว ให้ checkout branch:
+> ```powershell
+> cd C:\Users\Wiwat.L\source\repos\ExcelDashboard
+> git fetch origin
+> git checkout cursor/aspnet-excel-dashboard-7d51
+> ```
+
+Solution file อยู่ที่:
 
 ```
-คัดลอกโฟลเดอร์ ExcelDashboard ทั้งหมด ไปที่ C:\ExcelDashboard\
+C:\Users\Wiwat.L\source\repos\ExcelDashboard\ExcelDashboard\ExcelDashboard.sln
 ```
 
 ### ขั้นที่ 2 — ติดตั้ง Microsoft Access Database Engine
@@ -45,7 +62,7 @@ https://www.microsoft.com/en-us/download/details.aspx?id=54920
 
 1. เปิด Visual Studio 2026
 2. File → Open → Project/Solution
-3. เลือก `C:\ExcelDashboard\ExcelDashboard.sln`
+3. เลือก `C:\Users\Wiwat.L\source\repos\ExcelDashboard\ExcelDashboard\ExcelDashboard.sln`
 
 ### ขั้นที่ 4 — ตั้งค่า Platform Target
 
