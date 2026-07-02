@@ -30,10 +30,7 @@ namespace ConsoleApp1
             if (!File.Exists(dictPath))
                 throw new FileNotFoundException($"ไม่พบ dictionary OCR: {dictPath}");
 
-            _session = new InferenceSession(modelPath, new SessionOptions
-            {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
-            });
+            _session = OnnxSessionFactory.Create(modelPath);
 
             _inputName = _session.InputMetadata.Keys.FirstOrDefault()
                 ?? throw new InvalidOperationException("โมเดล OCR ไม่มี input node");

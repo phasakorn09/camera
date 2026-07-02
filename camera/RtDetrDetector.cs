@@ -68,12 +68,7 @@ namespace ConsoleApp1
             _inputWidth = inputWidth;
             _inputHeight = inputHeight;
 
-            var options = new SessionOptions
-            {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL
-            };
-
-            _session = new InferenceSession(modelPath, options);
+            _session = OnnxSessionFactory.Create(modelPath);
         }
 
         /// <summary>
