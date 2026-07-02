@@ -13,11 +13,13 @@ namespace ConsoleApp1
             // ใช้ใน OCR logit ambiguity เท่านั้น — ไม่ soft vote ใน tracker
             new[] { 'ก', 'ค', 'ฅ', 'ฆ' },
             new[] { 'จ', 'ช', 'ซ', 'ฌ' },
-            new[] { 'ด', 'ต', 'ถ', 'ท' },
+            new[] { 'ด', 'ต', 'ถ', 'ท', 'ฒ', 'ฏ' },
+            new[] { 'ฎ', 'ด', 'ธ' },
             new[] { 'บ', 'ป', 'พ', 'ฟ' },
             new[] { 'ส', 'ศ', 'ษ' },
-            new[] { 'น', 'ณ', 'ญ' },
+            new[] { 'น', 'ณ', 'ญ', 'ร' },
             new[] { 'ข', 'ฃ', 'ค' },
+            new[] { 'ม', 'น' },
         };
 
         private static readonly Dictionary<string, string> SafePrefixFixes = new(StringComparer.Ordinal)
@@ -55,7 +57,7 @@ namespace ConsoleApp1
         }
 
         /// <summary>แก้ prefix หลัง OCR — กฎที่ปลอดภัยเท่านั้น</summary>
-        public static string FixPrefix(string letters)
+        public static string FixPrefix(string letters, string digitHint = "")
         {
             if (string.IsNullOrEmpty(letters))
                 return letters;
@@ -67,7 +69,8 @@ namespace ConsoleApp1
             string leading = letters[..consonantStart];
             string consonants = letters[consonantStart..];
 
-            if (SafePrefixFixes.TryGetValue(consonants, out string? fixedPrefix))
+            if (SafePrefixFixes.TryGetValue(consonants, out string? fixedPrefix)
+                && ShouldApplySafePrefixFix(consonants, fixedPrefix, digitHint))
                 return leading + fixedPrefix;
 
             string thoFixed = TryFixThoThoPrefix(consonants);
@@ -75,6 +78,14 @@ namespace ConsoleApp1
                 return leading + thoFixed;
 
             return letters;
+        }
+
+        private static bool ShouldApplySafePrefixFix(string consonants, string fixedPrefix, string digitHint)
+        {
+            if (consonants == "รฏ" && fixedPrefix == "ฐฐ")
+                return digitHint.StartsWith("69", StringComparison.Ordinal);
+
+            return true;
         }
 
         /// <summary>ฐฐ 69 — OCR ได้ ฐร / ลฐ / รฏ / ฐรฐ</summary>

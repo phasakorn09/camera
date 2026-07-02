@@ -40,3 +40,9 @@ Desktop.ini
 *.env
 appsettings.*.json
 !appsettings.json
+
+# Saved plate crops (runtime)
+**/Captures/*.jpg
+**/Captures/*.png
+**/Captures/plates.csv
+!**/Captures/.gitkeep

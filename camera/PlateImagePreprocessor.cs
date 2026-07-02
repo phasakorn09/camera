@@ -12,19 +12,23 @@ namespace ConsoleApp1
         private const double FallbackTopLineRatio = 0.55;
         private const double BlurVarianceThreshold = 18.0;
 
-        /// <summary>วัดความเบลอ — ค่าต่ำ = เบลอ (Laplacian variance)</summary>
-        public static bool IsBlurry(Mat bgr)
+        /// <summary>คะแนนความคมชัด (Laplacian variance) — สูง = ชัด</summary>
+        public static double MeasureSharpnessScore(Mat bgr)
         {
             if (bgr.Empty() || bgr.Width < 8 || bgr.Height < 8)
-                return true;
+                return 0;
 
             using var gray = new Mat();
             Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
             using var laplacian = new Mat();
             Cv2.Laplacian(gray, laplacian, MatType.CV_64F);
             Cv2.MeanStdDev(laplacian, out _, out Scalar stddev);
-            return stddev.Val0 < BlurVarianceThreshold;
+            return stddev.Val0;
         }
+
+        /// <summary>วัดความเบลอ — ค่าต่ำ = เบลอ (Laplacian variance)</summary>
+        public static bool IsBlurry(Mat bgr) =>
+            MeasureSharpnessScore(bgr) < BlurVarianceThreshold;
 
         /// <summary>sharpen เบา — ใช้ retry OCR เมื่อภาพไม่ชัด</summary>
         public static Mat SharpenForOcr(Mat bgr, double amount = 0.55)
@@ -303,19 +307,77 @@ namespace ConsoleApp1
             return work;
         }
 
-        /// <summary>crop ซ้ายบรรทัดบน — โฟกัสพยัญชนะ 2 ตัวหน้า</summary>
+        /// <summary>crop ซ้ายบรรทัดบน — โฟกัสพยัญชนะ 1–2 ตัว + upscale/CLAHE</summary>
         public static Mat ExtractPlatePrefixStrip(Mat topLineBgr)
         {
             if (topLineBgr.Empty() || topLineBgr.Width < 8 || topLineBgr.Height < 4)
                 return topLineBgr.Clone();
 
-            int cropW = Math.Clamp(topLineBgr.Width * 48 / 100, Math.Min(64, topLineBgr.Width), topLineBgr.Width);
+            int cropW = Math.Clamp(topLineBgr.Width * 38 / 100, Math.Min(56, topLineBgr.Width), topLineBgr.Width);
             int padY = Math.Max(2, topLineBgr.Height / 10);
 
             using var strip = new Mat(topLineBgr, new Rect(0, 0, cropW, topLineBgr.Height)).Clone();
             var padded = new Mat();
-            Cv2.CopyMakeBorder(strip, padded, padY, padY, 10, 6, BorderTypes.Replicate);
-            return padded;
+            Cv2.CopyMakeBorder(strip, padded, padY, padY, 10, 4, BorderTypes.Replicate);
+            return EnhancePrefixStripForOcr(padded);
+        }
+
+        /// <summary>เตรียมโซน prefix — upscale + CLAHE + sharpen เบา</summary>
+        private static Mat EnhancePrefixStripForOcr(Mat bgr)
+        {
+            Mat work = bgr.Clone();
+
+            if (work.Width < 160)
+            {
+                var upscaled = new Mat();
+                Cv2.Resize(work, upscaled,
+                    new Size(work.Width * 2, work.Height * 2),
+                    0, 0,
+                    InterpolationFlags.Cubic);
+                work.Dispose();
+                work = upscaled;
+            }
+
+            using (var sharp = SharpenForOcr(work, amount: 0.45))
+            {
+                sharp.CopyTo(work);
+            }
+
+            using (var enhanced = ApplyClaheBgr(work, clipLimit: 2.2))
+            {
+                enhanced.CopyTo(work);
+            }
+
+            return work;
+        }
+
+        /// <summary>เตรียมบรรทัดจังหวัด — upscale + CLAHE + sharpen สำหรับ retry OCR</summary>
+        public static Mat EnhanceProvinceLineForOcr(Mat bottomLineBgr)
+        {
+            Mat work = bottomLineBgr.Clone();
+
+            if (work.Width < 180)
+            {
+                var upscaled = new Mat();
+                Cv2.Resize(work, upscaled,
+                    new Size(work.Width * 2, work.Height * 2),
+                    0, 0,
+                    InterpolationFlags.Cubic);
+                work.Dispose();
+                work = upscaled;
+            }
+
+            using (var sharp = SharpenForOcr(work, amount: 0.5))
+            {
+                sharp.CopyTo(work);
+            }
+
+            using (var enhanced = ApplyClaheBgr(work, clipLimit: 2.0))
+            {
+                enhanced.CopyTo(work);
+            }
+
+            return work;
         }
 
         /// <summary>แยกบรรทัดบน/ล่างจาก projection แนวนอน (ช่องว่างระหว่าง 2 บรรทัด)</summary>

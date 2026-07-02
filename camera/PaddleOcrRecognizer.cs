@@ -59,6 +59,28 @@ namespace ConsoleApp1
                 return (new ThaiPlateReadResult(), null);
 
             using var prepared = PlateImagePreprocessor.PreparePlateCropForOcr(crop);
+            return (RecognizePreparedPlate(prepared), BuildPreparedPreview(prepared));
+        }
+
+        /// <summary>OCR จาก crop ใน memory (ไม่ round-trip ไฟล์)</summary>
+        public (ThaiPlateReadResult Result, Mat? PreviewImage) RecognizeCropWithPreview(Mat cropBgr)
+        {
+            if (cropBgr == null || cropBgr.Empty() || cropBgr.Width < 8 || cropBgr.Height < 8)
+                return (new ThaiPlateReadResult(), null);
+
+            using var prepared = PlateImagePreprocessor.PreparePlateCropForOcr(cropBgr);
+            return (RecognizePreparedPlate(prepared), BuildPreparedPreview(prepared));
+        }
+
+        /// <summary>OCR จากไฟล์ crop ที่บันทึกไว้ (หลัง finalize ป้าย)</summary>
+        public (ThaiPlateReadResult Result, Mat? PreviewImage) RecognizeSavedCropWithPreview(string imagePath)
+        {
+            using var crop = Cv2.ImRead(imagePath);
+            return RecognizeCropWithPreview(crop);
+        }
+
+        private static Mat BuildPreparedPreview(Mat prepared)
+        {
             PlateImagePreprocessor.SplitPlateLines(prepared, out _, out _, out int splitY);
 
             Mat preview = prepared.Clone();
@@ -68,7 +90,7 @@ namespace ConsoleApp1
                     new Scalar(0, 255, 255), 1, LineTypes.AntiAlias);
             }
 
-            return (RecognizePreparedPlate(prepared), preview);
+            return preview;
         }
 
         public ThaiPlateReadResult RecognizeThaiPlate(Mat plateCropBgr)
@@ -83,14 +105,18 @@ namespace ConsoleApp1
 
             try
             {
-                string plateNumber = RecognizePlateNumberLine(topLine);
-                string provinceRaw = RecognizeLine(bottomLine, isProvinceLine: true);
-                string province = ThaiProvinceMatcher.Match(provinceRaw);
+                var (plateNumber, plateScore) = RecognizePlateNumberLine(topLine);
+                string province = RecognizeProvinceLine(bottomLine, plateNumber);
+
+                float qualityScore = plateScore;
+                if (!string.IsNullOrWhiteSpace(province))
+                    qualityScore += 0.3f;
 
                 return new ThaiPlateReadResult
                 {
                     PlateNumber = plateNumber,
-                    Province = province
+                    Province = province,
+                    ReadQualityScore = qualityScore
                 };
             }
             finally
@@ -100,20 +126,49 @@ namespace ConsoleApp1
             }
         }
 
+        private string RecognizeProvinceLine(Mat bottomLine, string plateNumber)
+        {
+            if (bottomLine.Empty() || bottomLine.Height < 4 || bottomLine.Width < 4)
+                return string.Empty;
+
+            string provinceRaw = RecognizeLine(bottomLine, isProvinceLine: true);
+            string province = ThaiProvinceMatcher.Match(provinceRaw);
+
+            if (!string.IsNullOrWhiteSpace(province) || string.IsNullOrWhiteSpace(plateNumber))
+                return province;
+
+            using (var enhanced = PlateImagePreprocessor.EnhanceProvinceLineForOcr(bottomLine))
+            {
+                string retryRaw = RecognizeLine(enhanced, isProvinceLine: true);
+                province = ThaiProvinceMatcher.Match(retryRaw);
+                if (!string.IsNullOrWhiteSpace(province))
+                    return province;
+            }
+
+            using var sharpLine = PlateImagePreprocessor.SharpenForOcr(bottomLine, amount: 0.55);
+            string sharpRaw = RecognizeLine(sharpLine, isProvinceLine: true);
+            return ThaiProvinceMatcher.Match(sharpRaw);
+        }
+
         public string Recognize(Mat plateCropBgr) =>
             RecognizeThaiPlate(plateCropBgr).FullText;
 
-        private string RecognizePlateNumberLine(Mat topLine)
+        private (string Text, float Score) RecognizePlateNumberLine(Mat topLine)
         {
             if (topLine.Empty() || topLine.Height < 4 || topLine.Width < 4)
-                return string.Empty;
+                return (string.Empty, float.MinValue);
 
             var (fullText, fullScore) = RecognizeLineDualPass(topLine, emphasizeLetters: false);
 
             using var prefixStrip = PlateImagePreprocessor.ExtractPlatePrefixStrip(topLine);
             var (prefixText, prefixScore) = RecognizeLineDualPass(prefixStrip, emphasizeLetters: true);
 
-            return MergePlateOcrReads(fullText, fullScore, prefixText, prefixScore);
+            string merged = MergePlateOcrReads(fullText, fullScore, prefixText, prefixScore);
+            float mergedScore = Math.Max(fullScore, prefixScore);
+            if (!string.IsNullOrWhiteSpace(merged))
+                mergedScore += PlatePrefixScorer.ScorePlateNumber(merged) * 0.5f;
+
+            return (merged, mergedScore);
         }
 
         private (string Text, float Score) RecognizeLineDualPass(Mat lineBgr, bool emphasizeLetters)
@@ -144,23 +199,28 @@ namespace ConsoleApp1
             int prefixConsonants = CountThaiConsonants(prefixLetters);
 
             string letters = fullLetters;
-            if (prefixConsonants >= 2)
+            if (prefixConsonants >= 1 && prefixScore >= fullScore - 0.8f)
             {
                 if (fullConsonants < 2)
-                {
                     letters = prefixLetters;
-                }
-                else if (prefixConsonants > fullConsonants)
-                {
+                else if (fullConsonants > 2 && prefixConsonants <= fullConsonants)
                     letters = prefixLetters;
-                }
-                else if (prefixLetters != fullLetters && prefixScore >= fullScore - 0.6f)
-                {
+                else if (prefixConsonants >= 2 && prefixConsonants > fullConsonants)
+                    letters = prefixLetters;
+                else if (prefixLetters != fullLetters && prefixScore >= fullScore - 0.5f)
                     letters = prefixScore > fullScore ? prefixLetters : fullLetters;
-                }
+            }
+            else if (prefixConsonants >= 2)
+            {
+                if (fullConsonants < 2)
+                    letters = prefixLetters;
+                else if (prefixConsonants > fullConsonants)
+                    letters = prefixLetters;
+                else if (prefixLetters != fullLetters && prefixScore >= fullScore - 0.6f)
+                    letters = prefixScore > fullScore ? prefixLetters : fullLetters;
             }
 
-            string digits = fullDigits.Length >= prefixDigits.Length ? fullDigits : prefixDigits;
+            string digits = PickBestMergedDigits(fullDigits, prefixDigits, fullScore, prefixScore, letters);
 
             if (string.IsNullOrEmpty(letters) && string.IsNullOrEmpty(digits))
                 return string.Empty;
@@ -170,6 +230,39 @@ namespace ConsoleApp1
                 return ThaiPlateNumberNormalizer.Normalize(digits);
 
             return ThaiPlateNumberNormalizer.Normalize($"{letters} {digits}");
+        }
+
+        private static string PickBestMergedDigits(
+            string fullDigits,
+            string prefixDigits,
+            float fullScore,
+            float prefixScore,
+            string letters)
+        {
+            if (string.IsNullOrEmpty(fullDigits))
+                return prefixDigits;
+            if (string.IsNullOrEmpty(prefixDigits))
+                return fullDigits;
+
+            if (fullDigits == prefixDigits)
+                return fullDigits;
+
+            if (fullDigits.Length == 4 && prefixDigits.Length == 3
+                && ThaiPlateNumberNormalizer.IsLikelyVanityExpansionFromThree(fullDigits, prefixDigits))
+                return prefixDigits;
+
+            if (fullDigits.Length == 4 && prefixDigits.Length == 2
+                && prefixDigits == fullDigits[..2]
+                && (letters == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(letters)))
+                return prefixDigits;
+
+            if (prefixDigits.Length < fullDigits.Length)
+                return fullDigits;
+
+            if (prefixDigits.Length > fullDigits.Length)
+                return prefixDigits;
+
+            return fullScore >= prefixScore ? fullDigits : prefixDigits;
         }
 
         private static void SplitPlateParts(string normalized, out string letters, out string digits)
@@ -248,7 +341,12 @@ namespace ConsoleApp1
             float score = Math.Max(peakScore, stdScore);
 
             if (!isProvinceLine && mergedPeaks != null && mergedPeaks.Count > 0)
+            {
                 raw = ResolvePlateLineAmbiguity(logits, mergedPeaks, raw);
+                string plateNorm = ThaiPlateNumberNormalizer.Normalize(raw);
+                score = ScorePlateLineCandidate(plateNorm, mergedPeaks);
+                return (plateNorm, score);
+            }
 
             string normalized = isProvinceLine
                 ? NormalizeProvince(raw)
@@ -299,6 +397,8 @@ namespace ConsoleApp1
 
             const float defaultMargin = 2.2f;
             const float prefixMargin = 1.55f;
+            const float thoToMargin = 2.55f;
+            const float thoKBonus = 0.45f;
 
             for (int i = 0; i < peaks.Count; i++)
             {
@@ -316,7 +416,15 @@ namespace ConsoleApp1
                         continue;
 
                     float altLogit = logits[0, peaks[i].Time, altIdx];
-                    if (altLogit < peaks[i].Score - margin)
+                    float effectiveMargin = margin;
+                    if (alt == 'ฒ' && current == 'ต')
+                        effectiveMargin = Math.Max(effectiveMargin, thoToMargin);
+                    if (alt == 'ฎ' && current == 'ด')
+                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
+                    if (alt == 'ฏ' && current is 'ต' or 'ร')
+                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
+
+                    if (altLogit < peaks[i].Score - effectiveMargin)
                         continue;
 
                     var trialPeaks = peaks.ToList();
@@ -324,6 +432,11 @@ namespace ConsoleApp1
                     string trialRaw = BuildTextFromPeaks(trialPeaks);
                     string trialNorm = ThaiPlateNumberNormalizer.Normalize(trialRaw);
                     float trialScore = ScorePlateLineCandidate(trialNorm, trialPeaks);
+
+                    if (i == 0 && alt == 'ฒ' && PlatePrefixScorer.ExtractPrefixConsonants(trialNorm) == "ฒก")
+                        trialScore += thoKBonus;
+                    if (i == 0 && alt is 'ฎ' or 'ฏ')
+                        trialScore += 0.25f;
 
                     if (trialScore > bestScore && !string.IsNullOrWhiteSpace(trialNorm))
                     {
@@ -334,7 +447,37 @@ namespace ConsoleApp1
                 }
             }
 
-            return bestRaw;
+            return TryPreferThoKOverToK(logits, peaks, bestRaw, bestNorm, bestScore);
+        }
+
+        /// <summary>เมื่อ OCR ได้ ตก แต่ logit ฒ ใกล้ ต มาก — ลอง ฒก (ไม่สลับทุกที่)</summary>
+        private string TryPreferThoKOverToK(
+            Tensor<float> logits,
+            List<(int Time, int ClassIdx, float Score)> peaks,
+            string bestRaw,
+            string bestNorm,
+            float bestScore)
+        {
+            if (PlatePrefixScorer.ExtractPrefixConsonants(bestNorm) != "ตก" || peaks.Count == 0)
+                return bestRaw;
+
+            int thoIdx = CharToClassIndex('ฒ');
+            if (thoIdx <= 0)
+                return bestRaw;
+
+            float thoLogit = logits[0, peaks[0].Time, thoIdx];
+            if (thoLogit < peaks[0].Score - 2.55f)
+                return bestRaw;
+
+            var trialPeaks = peaks.ToList();
+            trialPeaks[0] = (peaks[0].Time, thoIdx, thoLogit);
+            string trialRaw = BuildTextFromPeaks(trialPeaks);
+            string trialNorm = ThaiPlateNumberNormalizer.Normalize(trialRaw);
+            if (PlatePrefixScorer.ExtractPrefixConsonants(trialNorm) != "ฒก")
+                return bestRaw;
+
+            float trialScore = ScorePlateLineCandidate(trialNorm, trialPeaks) + 0.45f;
+            return trialScore > bestScore ? trialRaw : bestRaw;
         }
 
         private static float ScorePlateLineCandidate(
@@ -344,19 +487,8 @@ namespace ConsoleApp1
             if (string.IsNullOrWhiteSpace(normalized))
                 return float.MinValue;
 
-            int letterCount = normalized.TakeWhile(c => c != ' ').Count(IsThaiConsonantChar);
-            if (letterCount == 0)
-                letterCount = normalized.Count(IsThaiConsonantChar);
-
             float peakAvg = peaks.Count > 0 ? peaks.Average(p => p.Score) : -5f;
-            float letterBonus = letterCount switch
-            {
-                >= 2 => 0.65f,
-                1 => -0.15f,
-                _ => 0f
-            };
-
-            return peakAvg + letterBonus + normalized.Length * 0.05f;
+            return peakAvg + PlatePrefixScorer.ScorePlateNumber(normalized, peaks) + normalized.Length * 0.02f;
         }
 
         private static bool IsThaiConsonantChar(char c) => c >= '\u0E01' && c <= '\u0E2E';

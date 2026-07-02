@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using OpenCvSharp;
@@ -85,7 +86,9 @@ namespace ConsoleApp1
             }
 
             Console.WriteLine("เปิดกล้องสำเร็จ");
-            Console.WriteLine("RT-DETR = หาป้าย  |  PaddleOCR = อ่านตัวอักษรบนป้าย");
+            Console.WriteLine("RT-DETR = หาป้าย  |  PaddleOCR = อ่านครั้งเดียวเมื่อได้ crop ชัดที่สุด");
+            Console.WriteLine($"บันทึก crop ป้ายที่: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures")}");
+            Console.WriteLine($"CSV log: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures", "plates.csv")}");
             Console.WriteLine("ESC = ออก  |  [ = ลดความคมชัด  |  ] = เพิ่มความคมชัด");
 
             string windowName = "License Plate Detection - RT-DETRv2";
@@ -154,13 +157,22 @@ namespace ConsoleApp1
                             p.Image,
                             p.PlateNumber,
                             p.Province,
-                            p.DetectConfidence));
+                            p.DetectConfidence,
+                            p.SourceBox));
                     }
                 }
 
                 foreach (var det in dets)
                 {
-                    Cv2.Rectangle(showFrame, det.Box, new Scalar(0, 255, 255), thickness: 2);
+                    var boxColor = det.CapturePhase == PlateCaptureUiPhase.Collecting
+                        ? new Scalar(0, 165, 255)
+                        : det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr
+                            ? new Scalar(0, 140, 255)
+                            : det.CapturePhase == PlateCaptureUiPhase.UncertainRead
+                                ? new Scalar(0, 128, 255)
+                                : new Scalar(0, 255, 255);
+
+                    Cv2.Rectangle(showFrame, det.Box, boxColor, thickness: 2);
 
                     if (det.HasOcrResult)
                     {
@@ -186,6 +198,14 @@ namespace ConsoleApp1
                                 textColor: SD.Color.Black,
                                 bgColor: SD.Color.FromArgb(255, 200, 255, 255));
                         }
+                    }
+                    else if (det.CapturePhase == PlateCaptureUiPhase.UncertainRead)
+                    {
+                        DrawUncertainReadOverlay(showFrame, det);
+                    }
+                    else if (det.CapturePhase != PlateCaptureUiPhase.None)
+                    {
+                        DrawCaptureStatusOverlay(showFrame, det);
                     }
                     else
                     {
@@ -286,7 +306,7 @@ namespace ConsoleApp1
 
         // ── Thread 2: Detector ───────────────────────────────────────────────
         // รัน inference แบบ async ไม่บล็อก display loop
-        private static readonly PlateReadTracker _plateTracker = new();
+        private static readonly PlateCaptureTracker _captureTracker = new();
 
         private static void DetectorLoop(RtDetrDetector detector, PaddleOcrRecognizer ocr)
         {
@@ -313,49 +333,151 @@ namespace ConsoleApp1
                 }
 
                 var results = detector.Detect(detectionFrame);
-                var activeBoxes = new List<Rect>(results.Count);
+                var finalized = _captureTracker.ProcessFrame(detectionFrame, results, ocr);
                 var newPreviews = new List<PlateOcrPreview>();
 
-                foreach (var det in results)
+                foreach (var capture in finalized)
                 {
-                    var (ocrResult, previewImage) = ocr.RecognizeThaiPlateFromFrameWithPreview(
-                        detectionFrame, det.Box);
-
-                    var tracked = _plateTracker.Update(
-                        det.Box, ocrResult.PlateNumber, ocrResult.Province, det.Confidence);
-
-                    det.PlateNumber = tracked.DisplayPlate;
-                    det.Province = tracked.DisplayProvince;
-                    det.PlateText = BuildPlateText(tracked.DisplayPlate, tracked.DisplayProvince);
-                    activeBoxes.Add(det.Box);
-
-                    if (previewImage != null && !previewImage.Empty())
+                    if (capture.IsValidated &&
+                        capture.PreviewImage != null && !capture.PreviewImage.Empty())
                     {
                         newPreviews.Add(new PlateOcrPreview(
-                            previewImage,
-                            det.PlateNumber,
-                            det.Province,
-                            det.Confidence));
-                        previewImage.Dispose();
+                            capture.PreviewImage,
+                            capture.PlateNumber,
+                            capture.Province,
+                            capture.DetectConfidence,
+                            capture.Box));
+                        capture.PreviewImage.Dispose();
                     }
-
-                    if (tracked.ShouldLog)
+                    else
                     {
-                        Console.WriteLine(
-                            $"[OCR] เลข: {tracked.LogPlate}  |  จังหวัด: {tracked.LogProvince}  " +
-                            $"(detect: {tracked.LogConfidence:F2}, confirm: {tracked.ConfirmVotes}/{tracked.SampleCount})");
+                        capture.PreviewImage?.Dispose();
                     }
-                }
 
-                _plateTracker.MarkMissed(activeBoxes);
+                    if (!capture.ShouldLog)
+                        continue;
+
+                    Console.WriteLine(
+                        $"[OCR] เลข: {capture.PlateNumber}  |  จังหวัด: {capture.Province}  " +
+                        $"(detect: {capture.DetectConfidence:F2}, sharp: {capture.SharpnessScore:F1}, " +
+                        $"frames: {capture.FramesCollected})");
+                    Console.WriteLine($"       saved: {capture.SavedImagePath}");
+                }
 
                 lock (_resultsLock)
                 {
                     _lastDetections = results;
-                    DisposeOcrPreviews(_lastOcrPreviews);
-                    _lastOcrPreviews = newPreviews;
+                    var mergedPreviews = MergeOcrPreviews(_lastOcrPreviews, newPreviews, results);
+                    DisposeOcrPreviews(_lastOcrPreviews.Except(mergedPreviews).ToList());
+                    _lastOcrPreviews = mergedPreviews;
                 }
             }
+        }
+
+        private static List<PlateOcrPreview> MergeOcrPreviews(
+            IReadOnlyList<PlateOcrPreview> previous,
+            IReadOnlyList<PlateOcrPreview> newlyFinalized,
+            IReadOnlyList<Detection> currentDetections)
+        {
+            var merged = new List<PlateOcrPreview>(newlyFinalized);
+
+            foreach (var prev in previous)
+            {
+                if (merged.Any(m => PreviewMatches(m, prev)))
+                    continue;
+
+                bool stillVisible = currentDetections.Any(det =>
+                    det.HasOcrResult &&
+                    det.PlateNumber == prev.PlateNumber &&
+                    det.Province == prev.Province &&
+                    (prev.SourceBox.Width <= 0 || CalculateBoxIoU(det.Box, prev.SourceBox) >= 0.35f));
+
+                if (stillVisible)
+                    merged.Add(prev);
+            }
+
+            return merged;
+        }
+
+        private static bool PreviewMatches(PlateOcrPreview a, PlateOcrPreview b) =>
+            a.PlateNumber == b.PlateNumber &&
+            a.Province == b.Province &&
+            (a.SourceBox.Width <= 0 || b.SourceBox.Width <= 0 ||
+             CalculateBoxIoU(a.SourceBox, b.SourceBox) >= 0.35f);
+
+        private static void DrawUncertainReadOverlay(Mat frame, Detection det)
+        {
+            const string statusText = "อ่านไม่ชัด";
+            int labelY = det.Box.Y - 8;
+            var statusSize = ThaiTextRenderer.MeasureText(statusText, 16f);
+            labelY -= statusSize.Height + 4;
+            ThaiTextRenderer.DrawText(frame, statusText,
+                new Point(det.Box.X, labelY),
+                fontSize: 16f,
+                textColor: SD.Color.White,
+                bgColor: SD.Color.FromArgb(255, 180, 80, 40));
+        }
+
+        private static void DrawCaptureStatusOverlay(Mat frame, Detection det)
+        {
+            string statusText = det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr
+                ? "กำลังอ่านป้าย..."
+                : "กำลังเก็บภาพ...";
+
+            int target = Math.Max(1, det.CollectTargetFrames);
+            int collected = Math.Clamp(det.CollectFrameCount, 0, target);
+            float progress = collected / (float)target;
+
+            string detailText = det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr
+                ? $"sharp {det.CollectSharpness:F0}"
+                : $"{collected}/{target}  sharp {det.CollectSharpness:F0}";
+
+            int labelY = det.Box.Y - 8;
+            var statusSize = ThaiTextRenderer.MeasureText(statusText, 16f);
+            labelY -= statusSize.Height + 4;
+            ThaiTextRenderer.DrawText(frame, statusText,
+                new Point(det.Box.X, labelY),
+                fontSize: 16f,
+                textColor: SD.Color.Black,
+                bgColor: SD.Color.FromArgb(255, 255, 210, 120));
+
+            int baseline;
+            var detailSize = Cv2.GetTextSize(detailText, HersheyFonts.HersheySimplex, 0.48, 1, out baseline);
+            labelY -= detailSize.Height + 6;
+            var detailBgTl = new Point(det.Box.X, labelY - detailSize.Height - 2);
+            var detailBgBr = new Point(det.Box.X + detailSize.Width + 6, labelY + 2);
+            Cv2.Rectangle(frame, detailBgTl, detailBgBr, new Scalar(255, 220, 160), thickness: -1);
+            Cv2.PutText(frame, detailText,
+                new Point(det.Box.X + 3, labelY),
+                HersheyFonts.HersheySimplex, 0.48, new Scalar(20, 20, 20), thickness: 1);
+
+            int barY = det.Box.Y + det.Box.Height + 4;
+            int barW = Math.Max(det.Box.Width, 80);
+            int barH = 6;
+            var barRect = new Rect(det.Box.X, barY, barW, barH);
+            Cv2.Rectangle(frame, barRect, new Scalar(60, 60, 60), thickness: -1);
+
+            int fillW = Math.Max(1, (int)Math.Round(barW * progress));
+            if (det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr)
+                fillW = barW;
+
+            var fillRect = new Rect(det.Box.X, barY, fillW, barH);
+            Cv2.Rectangle(frame, fillRect, new Scalar(0, 180, 255), thickness: -1);
+        }
+
+        private static float CalculateBoxIoU(Rect a, Rect b)
+        {
+            int x1 = Math.Max(a.X, b.X);
+            int y1 = Math.Max(a.Y, b.Y);
+            int x2 = Math.Min(a.X + a.Width, b.X + b.Width);
+            int y2 = Math.Min(a.Y + a.Height, b.Y + b.Height);
+
+            int interW = Math.Max(0, x2 - x1);
+            int interH = Math.Max(0, y2 - y1);
+            int interArea = interW * interH;
+            int unionArea = a.Width * a.Height + b.Width * b.Height - interArea;
+
+            return unionArea <= 0 ? 0f : (float)interArea / unionArea;
         }
 
         private static Mat ComposeFrameWithOcrPanel(Mat videoFrame, IReadOnlyList<PlateOcrPreview> previews)

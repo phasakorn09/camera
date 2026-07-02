@@ -5,6 +5,8 @@ namespace ConsoleApp1
     {
         public string PlateNumber { get; init; } = string.Empty;
         public string Province { get; init; } = string.Empty;
+        /// <summary>คะแนนคุณภาพการอ่าน — ใช้เลือกผลที่ดีกว่าเมื่อเลข 4 หลักซ้ำ</summary>
+        public float ReadQualityScore { get; init; }
 
         public string FullText
         {

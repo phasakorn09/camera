@@ -1,0 +1,123 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace ConsoleApp1
+{
+    /// <summary>ให้คะแนน prefix หลัง normalize — ช่วยเลือก ฒก แทน ตก เมื่อ logit ใกล้กัน</summary>
+    internal static class PlatePrefixScorer
+    {
+        public static string ExtractPrefixConsonants(string normalizedPlate)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedPlate))
+                return string.Empty;
+
+            SplitParts(normalizedPlate.Trim(), out string lettersPart, out _);
+
+            int start = 0;
+            while (start < lettersPart.Length && char.IsDigit(lettersPart[start]))
+                start++;
+
+            var consonants = new List<char>(2);
+            for (int i = start; i < lettersPart.Length && consonants.Count < 2; i++)
+            {
+                char c = lettersPart[i];
+                if (c >= '\u0E01' && c <= '\u0E2E')
+                    consonants.Add(c);
+            }
+
+            return new string(consonants.ToArray());
+        }
+
+        public static string ExtractDigitPart(string normalizedPlate)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedPlate))
+                return string.Empty;
+
+            SplitParts(normalizedPlate.Trim(), out _, out string digitsPart);
+            return digitsPart;
+        }
+
+        public static float ScorePlateNumber(
+            string normalized,
+            IReadOnlyList<(int Time, int ClassIdx, float Score)>? peaks = null)
+        {
+            if (string.IsNullOrWhiteSpace(normalized))
+                return float.MinValue;
+
+            int letterCount = CountPrefixConsonants(normalized);
+            float score = letterCount switch
+            {
+                2 => 0.75f,
+                1 => -0.15f,
+                >= 3 => -0.85f,
+                _ => 0f
+            };
+
+            string digits = ExtractDigitPart(normalized);
+            if (digits.Length >= 1 && digits.Length <= 4 && digits.All(char.IsDigit))
+                score += 0.2f;
+
+            string prefix = ExtractPrefixConsonants(normalized);
+            if (prefix == "ฒก")
+                score += 0.25f;
+            if (prefix.Length > 0 && prefix[0] is 'ฎ' or 'ฏ')
+                score += 0.2f;
+
+            if (peaks != null && peaks.Count > 0)
+                score += peaks.Average(p => p.Score) * 0.08f;
+
+            return score;
+        }
+
+        private static void SplitParts(string normalized, out string lettersPart, out string digitsPart)
+        {
+            lettersPart = string.Empty;
+            digitsPart = string.Empty;
+
+            int space = normalized.IndexOf(' ');
+            if (space > 0)
+            {
+                lettersPart = normalized[..space].Trim();
+                digitsPart = normalized[(space + 1)..].Trim();
+                return;
+            }
+
+            int firstDigit = -1;
+            for (int i = 0; i < normalized.Length; i++)
+            {
+                if (char.IsDigit(normalized[i]))
+                {
+                    firstDigit = i;
+                    break;
+                }
+            }
+
+            if (firstDigit < 0)
+            {
+                lettersPart = normalized;
+                return;
+            }
+
+            lettersPart = normalized[..firstDigit].Trim();
+            digitsPart = normalized[firstDigit..].Trim();
+        }
+
+        private static int CountPrefixConsonants(string normalized)
+        {
+            int space = normalized.IndexOf(' ');
+            ReadOnlySpan<char> letterPart = space > 0
+                ? normalized.AsSpan(0, space)
+                : normalized.AsSpan();
+
+            int count = 0;
+            foreach (char c in letterPart)
+            {
+                if (c >= '\u0E01' && c <= '\u0E2E')
+                    count++;
+            }
+
+            return count;
+        }
+    }
+}

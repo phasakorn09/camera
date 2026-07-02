@@ -17,6 +17,12 @@ namespace ConsoleApp1
 
         private static readonly HashSet<char> NoiseLeadConsonants = new() { 'อ', 'ล', 'ร' };
 
+        /// <summary>ตัvที่มักเป็น noise ท้าย prefix เมื่อ OCR อ่านเกิน 2 ตัv</summary>
+        private static readonly HashSet<char> TrailingPrefixNoise = new()
+        {
+            'ร', 'น', 'ณ', 'ญ', 'ว', 'ล', 'ฤ', '์'
+        };
+
         public static string Normalize(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
@@ -73,8 +79,9 @@ namespace ConsoleApp1
 
             FixLetterMisreads(letters);
 
-            string lettersFinal = ThaiPlateLetterConfusion.FixPrefix(letters.ToString());
             string digitsRaw = ExtractBestDigits(new string(digitChars.ToArray()));
+            string lettersFinal = ThaiPlateLetterConfusion.FixPrefix(letters.ToString(), digitsRaw);
+            lettersFinal = TrimExcessPrefixConsonants(lettersFinal);
             string digitsFinal = FinalizeDigits(digitsRaw, lettersFinal);
 
             if (lettersFinal.Length == 0 && digitsFinal.Length == 0)
@@ -153,6 +160,86 @@ namespace ConsoleApp1
             }
         }
 
+        /// <summary>บังคับ prefix ไทย 1–2 ตัv (ยกเว้น vanity เช่น ฐฐ) — ตัด OCR ที่อ่านเกิน</summary>
+        private static string TrimExcessPrefixConsonants(string lettersWithPossibleLeadingDigits)
+        {
+            if (string.IsNullOrEmpty(lettersWithPossibleLeadingDigits))
+                return lettersWithPossibleLeadingDigits;
+
+            int digitPrefixLen = 0;
+            while (digitPrefixLen < lettersWithPossibleLeadingDigits.Length
+                   && char.IsDigit(lettersWithPossibleLeadingDigits[digitPrefixLen]))
+                digitPrefixLen++;
+
+            string leading = lettersWithPossibleLeadingDigits[..digitPrefixLen];
+            string consonants = lettersWithPossibleLeadingDigits[digitPrefixLen..];
+
+            if (consonants.Length <= 2)
+                return lettersWithPossibleLeadingDigits;
+
+            if (consonants == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(consonants))
+                return leading + "ฐฐ";
+
+            if (consonants.Length >= 2 && consonants[0] == consonants[1])
+                return leading + consonants[..2];
+
+            while (consonants.Length > 2 && TrailingPrefixNoise.Contains(consonants[^1]))
+                consonants = consonants[..^1];
+
+            if (consonants.Length <= 2)
+                return leading + consonants;
+
+            consonants = PickBestTwoConsonantWindow(consonants);
+            return leading + consonants;
+        }
+
+        private static string PickBestTwoConsonantWindow(string consonants)
+        {
+            if (consonants.Length <= 2)
+                return consonants;
+
+            string best = consonants[..2];
+            int bestScore = ScorePrefixPair(consonants, 0);
+
+            for (int start = 1; start <= consonants.Length - 2; start++)
+            {
+                int score = ScorePrefixPair(consonants, start);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = consonants.Substring(start, 2);
+                }
+            }
+
+            return best;
+        }
+
+        private static int ScorePrefixPair(string consonants, int start)
+        {
+            char a = consonants[start];
+            char b = consonants[start + 1];
+            int score = 0;
+
+            if (start == 0)
+                score += 3;
+            else if (start == 1 && consonants.Length >= 3)
+                score += 2;
+
+            if (a is 'ฎ' or 'ฏ' or 'ฒ')
+                score += 2;
+
+            if (TrailingPrefixNoise.Contains(b))
+                score -= 3;
+
+            if (TrailingPrefixNoise.Contains(a) && start > 0)
+                score -= 2;
+
+            if (NoiseLeadConsonants.Contains(a) && start == 0 && consonants.Length > 2)
+                score -= 1;
+
+            return score;
+        }
+
         /// <summary>ปรับเลขหลัง parse — ใช้ร่วมกับ ThaiPlateNumberNormalizer.Normalize ได้</summary>
         internal static string RefineDigits(string digits, string letters)
         {
@@ -164,16 +251,32 @@ namespace ConsoleApp1
             digits = FixHomogeneousOutlier(digits);
             digits = FixVanityDoublePattern(digits, letters);
 
-            if (digits.Length == 3 && digits.All(c => c == digits[0]))
-                return new string(digits[0], MaxDigits);
-
+            // ไม่ขยาย 3→4 อัตโนมัติ — ป้าย 3 หลักจริng (122, 688, 888) จะไม่กลายเป็น 4 หลัก
             if (digits.Length == MaxDigits)
                 return digits;
 
-            if (TryCompleteDoublePair(digits, out string pair))
-                return pair;
-
             return digits;
+        }
+
+        /// <summary>4 หลักที่น่aเป็น vanity ขยายจาก 3 หลัก OCR (688→6688, 122→1222)</summary>
+        internal static bool IsLikelyVanityExpansionFromThree(string fourDigits, string threeDigits)
+        {
+            if (fourDigits.Length != 4 || threeDigits.Length != 3)
+                return false;
+
+            if (threeDigits[1] == threeDigits[2]
+                && fourDigits == $"{threeDigits[0]}{threeDigits[0]}{threeDigits[1]}{threeDigits[1]}")
+                return true;
+
+            if (threeDigits[0] == threeDigits[1]
+                && fourDigits == $"{threeDigits[0]}{threeDigits[0]}{threeDigits[2]}{threeDigits[2]}")
+                return true;
+
+            if (threeDigits.All(c => c == threeDigits[0])
+                && fourDigits == new string(threeDigits[0], MaxDigits))
+                return true;
+
+            return false;
         }
 
         private static string FinalizeDigits(string digits, string letters) =>
@@ -494,35 +597,6 @@ namespace ConsoleApp1
             }
 
             return digits;
-        }
-
-        /// <summary>688, 866, 6880(→688) — ไม่ใช้กับ 9299, 929, 1441</summary>
-        private static bool TryCompleteDoublePair(string digits, out string result)
-        {
-            result = string.Empty;
-            string d = digits;
-
-            if (d.Length == 4 && d.EndsWith('0') && d.Count(c => c == '0') == 1)
-                d = d[..^1];
-
-            if (d.Length != 3)
-                return false;
-
-            // XYY → XXYY
-            if (d[1] == d[2] && d[0] != d[1])
-            {
-                result = $"{d[0]}{d[0]}{d[1]}{d[1]}";
-                return true;
-            }
-
-            // XXY → XXYY
-            if (d[0] == d[1] && d[1] != d[2])
-            {
-                result = $"{d[0]}{d[0]}{d[2]}{d[2]}";
-                return true;
-            }
-
-            return false;
         }
 
         private static string ExtractBestDigits(string digits)

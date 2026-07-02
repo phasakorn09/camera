@@ -24,6 +24,13 @@ namespace ConsoleApp1
 
         public bool HasOcrResult =>
             !string.IsNullOrWhiteSpace(PlateNumber) || !string.IsNullOrWhiteSpace(Province);
+
+        /// <summary>กำลังเก็บเฟรม / กำลัง OCR — ใช้แสดงสถานะบนจอ</summary>
+        public PlateCaptureUiPhase CapturePhase { get; set; } = PlateCaptureUiPhase.None;
+        public int CollectFrameCount { get; set; }
+        public int CollectTargetFrames { get; set; }
+        public double CollectSharpness { get; set; }
+        internal int CaptureTrackId { get; set; }
     }
 
     /// <summary>

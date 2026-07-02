@@ -9,13 +9,15 @@ namespace ConsoleApp1
         public string PlateNumber { get; init; } = string.Empty;
         public string Province { get; init; } = string.Empty;
         public float DetectConfidence { get; init; }
+        public Rect SourceBox { get; init; }
 
-        public PlateOcrPreview(Mat image, string plateNumber, string province, float detectConfidence)
+        public PlateOcrPreview(Mat image, string plateNumber, string province, float detectConfidence, Rect sourceBox = default)
         {
             Image = image.Clone();
             PlateNumber = plateNumber;
             Province = province;
             DetectConfidence = detectConfidence;
+            SourceBox = sourceBox;
         }
 
         public void Dispose()
