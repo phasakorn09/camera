@@ -12,7 +12,7 @@ namespace ConsoleApp1
             if (string.IsNullOrWhiteSpace(normalizedPlate))
                 return string.Empty;
 
-            SplitParts(normalizedPlate.Trim(), out string lettersPart, out _);
+            ThaiPlateParts.Split(normalizedPlate.Trim(), out string lettersPart, out _);
 
             int start = 0;
             while (start < lettersPart.Length && char.IsDigit(lettersPart[start]))
@@ -34,7 +34,7 @@ namespace ConsoleApp1
             if (string.IsNullOrWhiteSpace(normalizedPlate))
                 return string.Empty;
 
-            SplitParts(normalizedPlate.Trim(), out _, out string digitsPart);
+            ThaiPlateParts.Split(normalizedPlate.Trim(), out _, out string digitsPart);
             return digitsPart;
         }
 
@@ -68,39 +68,6 @@ namespace ConsoleApp1
                 score += peaks.Average(p => p.Score) * 0.08f;
 
             return score;
-        }
-
-        private static void SplitParts(string normalized, out string lettersPart, out string digitsPart)
-        {
-            lettersPart = string.Empty;
-            digitsPart = string.Empty;
-
-            int space = normalized.IndexOf(' ');
-            if (space > 0)
-            {
-                lettersPart = normalized[..space].Trim();
-                digitsPart = normalized[(space + 1)..].Trim();
-                return;
-            }
-
-            int firstDigit = -1;
-            for (int i = 0; i < normalized.Length; i++)
-            {
-                if (char.IsDigit(normalized[i]))
-                {
-                    firstDigit = i;
-                    break;
-                }
-            }
-
-            if (firstDigit < 0)
-            {
-                lettersPart = normalized;
-                return;
-            }
-
-            lettersPart = normalized[..firstDigit].Trim();
-            digitsPart = normalized[firstDigit..].Trim();
         }
 
         private static int CountPrefixConsonants(string normalized)

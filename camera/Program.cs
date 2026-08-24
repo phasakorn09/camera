@@ -35,6 +35,10 @@ namespace ConsoleApp1
 
         private static volatile bool _running = true;
 
+        private static readonly List<ThaiPlateVisionReading> _visionReadings = new();
+        private static readonly object _visionLock = new();
+        private static int _plateDetectionCount;
+
         // ── Sharpness: 0 = ปิด, 1–5 = คมชัดมากขึ้นเรื่อยๆ ────────────────────
         // ปรับด้วยปุ่ม [ และ ] บนหน้าต่างวิดีโอ
         private static volatile int _sharpnessLevel = 0;
@@ -52,7 +56,8 @@ namespace ConsoleApp1
             {
                 Console.WriteLine($"ไม่พบไฟล์โมเดลที่: {modelPath}");
                 Console.WriteLine("ตรวจสอบว่าได้วาง plate_rtdetr.onnx ไว้ใน Models/ และตั้งค่า Copy to Output Directory แล้ว");
-                Console.ReadKey();
+                if (!CameraSource.WantsOnce(args))
+                    Console.ReadKey();
                 return;
             }
 
@@ -61,38 +66,36 @@ namespace ConsoleApp1
                 Console.WriteLine("ไม่พบโมเดล PaddleOCR ภาษาไทย:");
                 Console.WriteLine($"  - {ocrModelPath}");
                 Console.WriteLine($"  - {ocrDictPath}");
-                Console.ReadKey();
+                if (!CameraSource.WantsOnce(args))
+                    Console.ReadKey();
                 return;
             }
 
             using var detector = new RtDetrDetector(modelPath);
             using var ocr = new PaddleOcrRecognizer(ocrModelPath, ocrDictPath);
 
-            Environment.SetEnvironmentVariable(
-                "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-                "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
-
-            // สลับบรรทัดด้านล่างเพื่อเปลี่ยนระหว่าง webcam กับ RTSP
-            //string rtspUrl = "rtsp://admin:Admin1234@192.168.11.80:554/Streaming/Channels/101";
-            //using var capture = new VideoCapture(rtspUrl);
-            using var capture = new VideoCapture(0);
+            bool once = CameraSource.WantsOnce(args);
+            using var capture = CameraSource.Open(args, out string cameraSource);
             capture.Set(VideoCaptureProperties.BufferSize, 1);
 
             if (!capture.IsOpened())
             {
-                Console.WriteLine("ไม่สามารถเปิดกล้องได้ ตรวจสอบว่ากล้องไม่ได้ถูกโปรแกรมอื่นใช้งานอยู่");
-                Console.ReadKey();
+                Console.WriteLine($"ไม่สามารถเปิดกล้องได้ ({cameraSource})");
+                Console.WriteLine("ค่าเริ่มต้นคือ IP 192.168.254.6 — ตั้ง CAMERA_URL / CAMERA_PASSWORD หรือใช้ --webcam");
+                if (!once)
+                    Console.ReadKey();
                 return;
             }
 
-            Console.WriteLine("เปิดกล้องสำเร็จ");
+            Console.WriteLine($"เปิดกล้องสำเร็จ: {cameraSource}");
             Console.WriteLine("RT-DETR = หาป้าย  |  PaddleOCR = อ่านครั้งเดียวเมื่อได้ crop ชัดที่สุด");
             Console.WriteLine($"บันทึก crop ป้ายที่: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures")}");
             Console.WriteLine($"CSV log: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures", "plates.csv")}");
             Console.WriteLine("ESC = ออก  |  [ = ลดความคมชัด  |  ] = เพิ่มความคมชัด");
 
             string windowName = "License Plate Detection - RT-DETRv2";
-            Cv2.NamedWindow(windowName, WindowFlags.Normal);
+            if (!once)
+                Cv2.NamedWindow(windowName, WindowFlags.Normal);
 
             // Thread 1: อ่านเฟรมจากกล้องต่อเนื่อง ป้อนทั้ง display และ detector
             var grabberThread = new Thread(() => GrabberLoop(capture))
@@ -109,6 +112,19 @@ namespace ConsoleApp1
                 Name = "Detector"
             };
             detectorThread.Start();
+
+            if (once)
+            {
+                RunOnceAnalysis(TimeSpan.FromSeconds(10));
+                _running = false;
+                grabberThread.Join(2000);
+                detectorThread.Join(2000);
+                _displayFrame?.Dispose();
+                _pendingFrame?.Dispose();
+                DisposeOcrPreviews(_lastOcrPreviews);
+                capture.Release();
+                return;
+            }
 
             // ── Main thread: Display loop วิ่งที่ FPS กล้อง ไม่รอ inference ──
             var fpsTimer = Stopwatch.StartNew();
@@ -268,6 +284,43 @@ namespace ConsoleApp1
             Cv2.DestroyAllWindows();
         }
 
+
+        private static void RecordVisionCapture(in PlateCaptureResult capture)
+        {
+            var reading = ThaiPlateVisionReport.FromCapture(in capture);
+            lock (_visionLock)
+            {
+                bool duplicate = _visionReadings.Any(r =>
+                    r.CanReport && reading.CanReport &&
+                    r.Letters == reading.Letters &&
+                    r.Digits == reading.Digits &&
+                    r.Province == reading.Province);
+                if (!duplicate)
+                    _visionReadings.Add(reading);
+            }
+        }
+
+        private static void RunOnceAnalysis(TimeSpan timeout)
+        {
+            Console.WriteLine($"วิเคราะห์ภาพจากกล้องสูงสุด {timeout.TotalSeconds:0} วินาที...");
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < timeout)
+            {
+                lock (_visionLock)
+                {
+                    if (_visionReadings.Any(r => r.CanReport) && sw.Elapsed > TimeSpan.FromSeconds(2))
+                        break;
+                }
+                Thread.Sleep(50);
+            }
+
+            List<ThaiPlateVisionReading> snapshot;
+            lock (_visionLock)
+                snapshot = _visionReadings.ToList();
+
+            Console.WriteLine(ThaiPlateVisionReport.FormatSummary(snapshot, _plateDetectionCount > 0));
+        }
+
         // ── Thread 1: Grabber ────────────────────────────────────────────────
         // ฟีดเฟรมให้ทั้ง display loop (ทุกเฟรม) และ detector (เฉพาะตอน detector ว่าง)
         private static void GrabberLoop(VideoCapture capture)
@@ -333,6 +386,8 @@ namespace ConsoleApp1
                 }
 
                 var results = detector.Detect(detectionFrame);
+                if (results.Count > 0)
+                    System.Threading.Interlocked.Add(ref _plateDetectionCount, results.Count);
                 var finalized = _captureTracker.ProcessFrame(detectionFrame, results, ocr);
                 var newPreviews = new List<PlateOcrPreview>();
 
@@ -354,14 +409,17 @@ namespace ConsoleApp1
                         capture.PreviewImage?.Dispose();
                     }
 
+                    RecordVisionCapture(in capture);
                     if (!capture.ShouldLog)
                         continue;
 
-                    Console.WriteLine(
-                        $"[OCR] เลข: {capture.PlateNumber}  |  จังหวัด: {capture.Province}  " +
-                        $"(detect: {capture.DetectConfidence:F2}, sharp: {capture.SharpnessScore:F1}, " +
-                        $"frames: {capture.FramesCollected})");
-                    Console.WriteLine($"       saved: {capture.SavedImagePath}");
+                    var reading = ThaiPlateVisionReport.FromCapture(in capture);
+                    if (reading.CanReport)
+                        Console.WriteLine(ThaiPlateVisionReport.FormatReading(reading, 1));
+                    else
+                        Console.WriteLine(ThaiPlateVisionReport.VehicleNoPlate);
+                    if (!string.IsNullOrWhiteSpace(capture.SavedImagePath))
+                        Console.WriteLine($"       saved: {capture.SavedImagePath}");
                 }
 
                 lock (_resultsLock)
