@@ -18,7 +18,7 @@ namespace ConsoleApp1
 
             ThaiPlateParts.Split(plateNumber.Trim(), out string lettersPart, out string digitsPart);
 
-            if (string.IsNullOrEmpty(digitsPart) || digitsPart.Length > 4 || !digitsPart.All(char.IsDigit))
+            if (!ThaiPlateCharset.IsValidPlateDigits(digitsPart))
             {
                 reason = "digits";
                 return false;
@@ -29,6 +29,11 @@ namespace ConsoleApp1
                 consonantStart++;
 
             string consonants = lettersPart[consonantStart..];
+            if (consonants.Any(c => !ThaiPlateCharset.IsPlateConsonant(c)))
+            {
+                reason = "prefix";
+                return false;
+            }
             int consonantCount = CountThaiConsonants(consonants);
 
             if (consonantCount >= 1 && consonantCount <= 2)
@@ -49,7 +54,7 @@ namespace ConsoleApp1
             int count = 0;
             foreach (char c in text)
             {
-                if (c >= '\u0E01' && c <= '\u0E2E')
+                if (ThaiPlateCharset.IsPlateConsonant(c))
                     count++;
             }
 

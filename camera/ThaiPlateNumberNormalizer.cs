@@ -33,16 +33,16 @@ namespace ConsoleApp1
             {
                 if (char.IsDigit(c))
                     stream.Add(c);
-                else if (IsThaiConsonant(c))
+                else if (ThaiPlateCharset.IsPlateConsonant(c))
                     stream.Add(c);
-                else if (IsThaiDigit(c))
+                else if (ThaiPlateCharset.IsThaiDigit(c))
                     stream.Add((char)('0' + (c - '\u0E50')));
             }
 
             if (stream.Count == 0)
                 return string.Empty;
 
-            int firstConsonantIdx = stream.FindIndex(IsThaiConsonant);
+            int firstConsonantIdx = stream.FindIndex(ThaiPlateCharset.IsPlateConsonant);
             if (firstConsonantIdx < 0)
             {
                 string digitsOnly = StripLeadingDigitNoise(new string(stream.Where(char.IsDigit).ToArray()));
@@ -63,7 +63,7 @@ namespace ConsoleApp1
 
             int i = firstConsonantIdx;
             int consonantCount = 0;
-            while (i < stream.Count && IsThaiConsonant(stream[i]) && consonantCount < MaxConsonants + 2)
+            while (i < stream.Count && ThaiPlateCharset.IsPlateConsonant(stream[i]) && consonantCount < MaxConsonants + 2)
             {
                 letters.Append(stream[i]);
                 i++;
@@ -131,7 +131,7 @@ namespace ConsoleApp1
 
             if (letters.Length > consonantStart + 1
                 && letters[^1] == '1'
-                && IsThaiConsonant(letters[^2]))
+                && ThaiPlateCharset.IsPlateConsonant(letters[^2]))
             {
                 letters[^1] = 'ท';
             }
@@ -803,10 +803,5 @@ namespace ConsoleApp1
             return digits;
         }
 
-        private static bool IsThaiConsonant(char c) =>
-            c >= '\u0E01' && c <= '\u0E2E';
-
-        private static bool IsThaiDigit(char c) =>
-            c >= '\u0E50' && c <= '\u0E59';
     }
 }

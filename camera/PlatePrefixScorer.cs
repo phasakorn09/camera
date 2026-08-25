@@ -22,7 +22,7 @@ namespace ConsoleApp1
             for (int i = start; i < lettersPart.Length && consonants.Count < 2; i++)
             {
                 char c = lettersPart[i];
-                if (c >= '\u0E01' && c <= '\u0E2E')
+                if (ThaiPlateCharset.IsPlateConsonant(c))
                     consonants.Add(c);
             }
 
@@ -82,7 +82,7 @@ namespace ConsoleApp1
             int count = 0;
             foreach (char c in letterPart)
             {
-                if (c >= '\u0E01' && c <= '\u0E2E')
+                if (ThaiPlateCharset.IsPlateConsonant(c))
                     count++;
             }
 

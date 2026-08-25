@@ -288,7 +288,7 @@ namespace ConsoleApp1
             {
                 if (c >= '0' && c <= '9')
                     digitSb.Append(c);
-                else if (c >= '\u0E01' && c <= '\u0E2E')
+                else if (ThaiPlateCharset.IsPlateConsonant(c))
                     letterSb.Append(c);
             }
 
@@ -297,7 +297,7 @@ namespace ConsoleApp1
         }
 
         private static int CountThaiConsonants(string text) =>
-            text.Count(c => c >= '\u0E01' && c <= '\u0E2E');
+            text.Count(ThaiPlateCharset.IsPlateConsonant);
 
         private string RecognizeLine(Mat lineBgr, bool isProvinceLine)
         {
@@ -334,8 +334,9 @@ namespace ConsoleApp1
             using var outputs = RunInference(prepared);
             var logits = outputs[0].AsTensor<float>();
 
-            var (peakText, peakScore, mergedPeaks) = DecodeCtcWithRepeats(logits, blurry, plateTopLine);
-            var (stdText, stdScore) = DecodeCtcStandardWithScore(logits);
+            var (peakText, peakScore, mergedPeaks) = DecodeCtcWithRepeats(
+                logits, blurry, plateTopLine, isProvinceLine);
+            var (stdText, stdScore) = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
 
             string raw = PickBestRawDecode(peakText, peakScore, stdText, stdScore);
             float score = Math.Max(peakScore, stdScore);
@@ -495,7 +496,7 @@ namespace ConsoleApp1
             return peakAvg + PlatePrefixScorer.ScorePlateNumber(normalized, peaks) + normalized.Length * 0.02f;
         }
 
-        private static bool IsThaiConsonantChar(char c) => c >= '\u0E01' && c <= '\u0E2E';
+        private static bool IsThaiConsonantChar(char c) => ThaiPlateCharset.IsPlateConsonant(c);
 
         private int CharToClassIndex(char c)
         {
@@ -572,13 +573,8 @@ namespace ConsoleApp1
         }
 
         /// <summary>อักษรไทยที่ใช้ในชื่อจังหวัดบนป้าย (ไม่รวมเลขไทย/อังกฤษ)</summary>
-        private static bool IsThaiScriptForProvince(char c)
-        {
-            if (c >= '\u0E01' && c <= '\u0E2E') return true; // พยัญชนะ ก–ฮ
-            if (c >= '\u0E30' && c <= '\u0E3A') return true; // สระ ะ ั า ำ ิ ี ฯลฯ
-            if (c >= '\u0E40' && c <= '\u0E4E') return true; // เ แ โ ใ ไ + วรรณยุกต์
-            return false;
-        }
+        private static bool IsThaiScriptForProvince(char c) =>
+            ThaiPlateCharset.IsProvinceChar(c);
 
         private static float[] BuildInputTensor(Mat bgrImage)
         {
@@ -612,11 +608,13 @@ namespace ConsoleApp1
 
         /// <summary>
         /// Peak-based CTC decode — รองรับตัวอักษร/เลขซ้ำ (เช่น 1122)
+        /// เลือกเฉพาะคลาสใน charset ป้าย (ตัวอักษร 44 + เลข / จังหวัด)
         /// </summary>
         private (string Text, float Score, List<(int Time, int ClassIdx, float Score)>? Peaks) DecodeCtcWithRepeats(
             Tensor<float> logits,
             bool blurryImage,
-            bool plateTopLine = false)
+            bool plateTopLine,
+            bool isProvinceLine)
         {
             int timeSteps = logits.Dimensions[1];
             if (timeSteps == 0)
@@ -633,6 +631,8 @@ namespace ConsoleApp1
                 float bestScore = float.MinValue;
                 for (int c = 1; c < _outputChars; c++)
                 {
+                    if (!IsAllowedPlateClass(c, plateTopLine, isProvinceLine))
+                        continue;
                     float score = logits[0, t, c];
                     if (score > bestScore)
                     {
@@ -653,7 +653,7 @@ namespace ConsoleApp1
 
             if (peaks.Count == 0)
             {
-                var std = DecodeCtcStandardWithScore(logits);
+                var std = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
                 return (std.Text, std.Score, null);
             }
 
@@ -679,12 +679,15 @@ namespace ConsoleApp1
             if (!string.IsNullOrEmpty(peakText))
                 return (peakText, peakScore, merged);
 
-            var fallback = DecodeCtcStandardWithScore(logits);
+            var fallback = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
             return (fallback.Text, fallback.Score, null);
         }
 
-        /// <summary>CTC greedy มาตรฐาน — fallback</summary>
-        private (string Text, float Score) DecodeCtcStandardWithScore(Tensor<float> logits)
+        /// <summary>CTC greedy มาตรฐาน — fallback (เฉพาะ charset ป้ายไทย)</summary>
+        private (string Text, float Score) DecodeCtcStandardWithScore(
+            Tensor<float> logits,
+            bool plateTopLine = false,
+            bool isProvinceLine = false)
         {
             int timeSteps = logits.Dimensions[1];
             var text = new StringBuilder();
@@ -697,6 +700,8 @@ namespace ConsoleApp1
                 float bestScore = float.MinValue;
                 for (int c = 0; c < _outputChars; c++)
                 {
+                    if (c != 0 && !IsAllowedPlateClass(c, plateTopLine, isProvinceLine))
+                        continue;
                     float score = logits[0, t, c];
                     if (score > bestScore)
                     {
@@ -728,6 +733,25 @@ namespace ConsoleApp1
             return (text.ToString().Trim(), avg);
         }
 
+        /// <summary>
+        /// CTC class 0 = blank เสมอ
+        /// บรรทัดป้าย: พยัญชนะ 44 ตัว + เลข 0–9 เท่านั้น (ตัดอังกฤษ/สัญลักษณ์)
+        /// บรรทัดจังหวัด: อักขระไทยในชื่อจังหวัดเท่านั้น
+        /// </summary>
+        private bool IsAllowedPlateClass(int classIdx, bool plateTopLine, bool isProvinceLine)
+        {
+            char ch = ClassIndexToChar(classIdx);
+            if (ch == '\0')
+                return false;
+            if (isProvinceLine)
+                return ThaiPlateCharset.IsProvinceChar(ch);
+            if (plateTopLine)
+                return ThaiPlateCharset.IsPlateNumberChar(ch) || ThaiPlateCharset.IsThaiDigit(ch);
+            return ThaiPlateCharset.IsPlateNumberChar(ch)
+                || ThaiPlateCharset.IsThaiDigit(ch)
+                || ThaiPlateCharset.IsProvinceChar(ch);
+        }
+
         private string DecodeCtcStandard(Tensor<float> logits) =>
             DecodeCtcStandardWithScore(logits).Text;
 
@@ -736,9 +760,14 @@ namespace ConsoleApp1
             var sb = new StringBuilder(peaks.Count);
             foreach (var peak in peaks)
             {
-                int dictIdx = peak.ClassIdx - 1;
-                if (dictIdx >= 0 && dictIdx < _alphabet.Count)
-                    sb.Append(_alphabet[dictIdx]);
+                char ch = ClassIndexToChar(peak.ClassIdx);
+                if (ch == '\0')
+                    continue;
+                if (!ThaiPlateCharset.IsPlateNumberChar(ch)
+                    && !ThaiPlateCharset.IsThaiDigit(ch)
+                    && !ThaiPlateCharset.IsProvinceChar(ch))
+                    continue;
+                sb.Append(ch);
             }
             return sb.ToString().Trim();
         }
