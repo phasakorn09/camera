@@ -236,7 +236,6 @@ namespace ConsoleApp1
             track.IsFinalized = true;
 
             var (ocrResult, previewImage) = ocr.RecognizeCropWithPreview(track.BestCrop!);
-            ocrResult = ApplyDigitAnchor(ocrResult);
 
             bool isValidated = ThaiPlateResultValidator.IsValid(ocrResult.PlateNumber, out _);
             bool shouldLog = isValidated && ShouldLogResult(

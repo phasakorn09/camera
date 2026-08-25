@@ -58,14 +58,6 @@ namespace ConsoleApp1
             if (digits.Length >= 1 && digits.Length <= 4 && digits.All(char.IsDigit))
                 score += 0.2f;
 
-            string prefix = ExtractPrefixConsonants(normalized);
-            if (prefix == "ฒก")
-                score += 0.25f;
-            if (prefix.Length > 0 && prefix[0] is 'ฎ' or 'ฏ')
-                score += 0.2f;
-            if (prefix.Any(ThaiPlateLetterConfusion.IsRarePlateConsonant))
-                score += 0.18f;
-
             if (peaks != null && peaks.Count > 0)
                 score += peaks.Average(p => p.Score) * 0.08f;
 

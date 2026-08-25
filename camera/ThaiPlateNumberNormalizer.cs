@@ -80,8 +80,7 @@ namespace ConsoleApp1
             FixLetterMisreads(letters);
 
             string digitsRaw = ExtractBestDigits(new string(digitChars.ToArray()));
-            string lettersFinal = ThaiPlateLetterConfusion.FixPrefix(letters.ToString(), digitsRaw);
-            lettersFinal = TrimExcessPrefixConsonants(lettersFinal);
+            string lettersFinal = TrimExcessPrefixConsonants(letters.ToString());
             string digitsFinal = FinalizeDigits(digitsRaw, lettersFinal);
 
             if (lettersFinal.Length == 0 && digitsFinal.Length == 0)
@@ -111,44 +110,7 @@ namespace ConsoleApp1
             while (consonantStart < letters.Length && char.IsDigit(letters[consonantStart]))
                 consonantStart++;
 
-            for (int j = consonantStart; j < letters.Length; j++)
-            {
-                if (letters[j] == '0')
-                    letters[j] = 'ก';
-            }
-
-            FixRedPlateLetters(letters, consonantStart);
             TrimLeadingNoiseConsonants(letters, consonantStart);
-
-            ThaiPlateLetterConfusion.ApplyStringBuilderFixes(letters);
-
-            string consonants = letters.ToString(consonantStart, letters.Length - consonantStart);
-
-            if (consonants == "ว")
-                letters.Insert(consonantStart, 'ก');
-            else if (consonants == "ย")
-                letters.Insert(consonantStart, 'ก');
-
-            if (letters.Length > consonantStart + 1
-                && letters[^1] == '1'
-                && ThaiPlateCharset.IsPlateConsonant(letters[^2]))
-            {
-                letters[^1] = 'ท';
-            }
-        }
-
-        private static void FixRedPlateLetters(StringBuilder letters, int consonantStart)
-        {
-            if (letters.Length <= consonantStart || letters[consonantStart] != '6')
-                return;
-
-            string tail = letters.ToString(consonantStart + 1, letters.Length - consonantStart - 1);
-            if (tail == "ก")
-                letters.Append('ท');
-            else if (tail == "ท")
-                letters.Insert(consonantStart + 1, 'ก');
-            else if (tail == "ก1")
-                letters[^1] = 'ท';
         }
 
         private static void TrimLeadingNoiseConsonants(StringBuilder letters, int consonantStart)
@@ -177,7 +139,7 @@ namespace ConsoleApp1
             if (consonants.Length <= 2)
                 return lettersWithPossibleLeadingDigits;
 
-            if (consonants == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(consonants))
+            if (consonants == "ฐฐ")
                 return leading + "ฐฐ";
 
             if (consonants.Length >= 2 && consonants[0] == consonants[1])
@@ -223,12 +185,6 @@ namespace ConsoleApp1
             if (start == 0)
                 score += 3;
             else if (start == 1 && consonants.Length >= 3)
-                score += 2;
-
-            if (a is 'ฎ' or 'ฏ' or 'ฒ' || ThaiPlateLetterConfusion.IsRarePlateConsonant(a))
-                score += 2;
-
-            if (ThaiPlateLetterConfusion.IsRarePlateConsonant(b))
                 score += 2;
 
             if (TrailingPrefixNoise.Contains(b))

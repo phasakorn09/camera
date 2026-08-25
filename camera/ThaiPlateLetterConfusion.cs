@@ -31,18 +31,6 @@ namespace ConsoleApp1
             'ฆ', 'ญ', 'ณ', 'ฬ', 'ฮ'
         };
 
-        private static readonly Dictionary<string, string> SafePrefixFixes = new(StringComparer.Ordinal)
-        {
-            ["สข"] = "สช",
-            ["รฐ"] = "ฐฐ",
-            ["ฐร"] = "ฐฐ",
-            ["ฐย"] = "ฐฐ",
-            ["ลฐ"] = "ฐฐ",
-            ["ยฐ"] = "ฐฐ",
-            ["นฐ"] = "ฐฐ",
-            ["รฏ"] = "ฐฐ",
-        };
-
         private static readonly HashSet<char> ThoPlateNoiseChars = new()
         {
             'ฐ', 'ร', 'ล', 'ฏ', 'ย', 'น', 'ธ'
@@ -68,36 +56,11 @@ namespace ConsoleApp1
             return GetPartners(expected).Contains(read);
         }
 
-        /// <summary>แก้ prefix หลัง OCR — กฎที่ปลอดภัยเท่านั้น</summary>
+        /// <summary>ไม่เดาตัวอักษรหลัง OCR — คืนค่าที่โมเดลอ่านได้ตามจริง</summary>
         public static string FixPrefix(string letters, string digitHint = "")
         {
-            if (string.IsNullOrEmpty(letters))
-                return letters;
-
-            int consonantStart = 0;
-            while (consonantStart < letters.Length && char.IsDigit(letters[consonantStart]))
-                consonantStart++;
-
-            string leading = letters[..consonantStart];
-            string consonants = letters[consonantStart..];
-
-            if (SafePrefixFixes.TryGetValue(consonants, out string? fixedPrefix)
-                && ShouldApplySafePrefixFix(consonants, fixedPrefix, digitHint))
-                return leading + fixedPrefix;
-
-            string thoFixed = TryFixThoThoPrefix(consonants);
-            if (thoFixed != consonants)
-                return leading + thoFixed;
-
+            _ = digitHint;
             return letters;
-        }
-
-        private static bool ShouldApplySafePrefixFix(string consonants, string fixedPrefix, string digitHint)
-        {
-            if (consonants == "รฏ" && fixedPrefix == "ฐฐ")
-                return digitHint.StartsWith("69", StringComparison.Ordinal);
-
-            return true;
         }
 
         /// <summary>ฐฐ 69 — OCR ได้ ฐร / ลฐ / รฏ / ฐรฐ</summary>

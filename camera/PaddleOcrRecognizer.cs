@@ -424,103 +424,15 @@ namespace ConsoleApp1
             return peakScore >= stdScore ? peak : standard;
         }
 
-        /// <summary>ลองสลับพยัญชนะที่คล้ายกัน (ฆ/ค/ก) เมื่อ logit ใกล้เคียง</summary>
+        /// <summary>ไม่สลับพยัญชนะหลัง CTC — ใช้ตัวที่โมเดลอ่านได้จากชุด 44 ตัว</summary>
         private string ResolvePlateLineAmbiguity(
             Tensor<float> logits,
             List<(int Time, int ClassIdx, float Score)> peaks,
             string initialRaw)
         {
-            string bestRaw = initialRaw;
-            string bestNorm = ThaiPlateNumberNormalizer.Normalize(initialRaw);
-            float bestScore = ScorePlateLineCandidate(bestNorm, peaks);
-
-            const float defaultMargin = 2.2f;
-            const float prefixMargin = 1.55f;
-            const float thoToMargin = 2.55f;
-            const float thoKBonus = 0.45f;
-
-            for (int i = 0; i < peaks.Count; i++)
-            {
-                char current = ClassIndexToChar(peaks[i].ClassIdx);
-                if (current == '\0')
-                    continue;
-
-                bool isPrefixPeak = i < 3 && IsThaiConsonantChar(current);
-                float margin = isPrefixPeak ? prefixMargin : defaultMargin;
-
-                foreach (char alt in ThaiPlateLetterConfusion.GetPartners(current))
-                {
-                    int altIdx = CharToClassIndex(alt);
-                    if (altIdx <= 0)
-                        continue;
-
-                    float altLogit = logits[0, peaks[i].Time, altIdx];
-                    float effectiveMargin = margin;
-                    if (alt == 'ฒ' && current == 'ต')
-                        effectiveMargin = Math.Max(effectiveMargin, thoToMargin);
-                    if (alt == 'ฎ' && current == 'ด')
-                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
-                    if (alt == 'ฏ' && current is 'ต' or 'ร')
-                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
-                    if (isPrefixPeak && ThaiPlateLetterConfusion.IsRarePlateConsonant(alt))
-                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
-
-                    if (altLogit < peaks[i].Score - effectiveMargin)
-                        continue;
-
-                    var trialPeaks = peaks.ToList();
-                    trialPeaks[i] = (peaks[i].Time, altIdx, altLogit);
-                    string trialRaw = BuildTextFromPeaks(trialPeaks);
-                    string trialNorm = ThaiPlateNumberNormalizer.Normalize(trialRaw);
-                    float trialScore = ScorePlateLineCandidate(trialNorm, trialPeaks);
-
-                    if (i == 0 && alt == 'ฒ' && PlatePrefixScorer.ExtractPrefixConsonants(trialNorm) == "ฒก")
-                        trialScore += thoKBonus;
-                    if (i == 0 && alt is 'ฎ' or 'ฏ')
-                        trialScore += 0.25f;
-                    if (isPrefixPeak && ThaiPlateLetterConfusion.IsRarePlateConsonant(alt))
-                        trialScore += 0.22f;
-
-                    if (trialScore > bestScore && !string.IsNullOrWhiteSpace(trialNorm))
-                    {
-                        bestScore = trialScore;
-                        bestRaw = trialRaw;
-                        bestNorm = trialNorm;
-                    }
-                }
-            }
-
-            return TryPreferThoKOverToK(logits, peaks, bestRaw, bestNorm, bestScore);
-        }
-
-        /// <summary>เมื่อ OCR ได้ ตก แต่ logit ฒ ใกล้ ต มาก — ลอง ฒก (ไม่สลับทุกที่)</summary>
-        private string TryPreferThoKOverToK(
-            Tensor<float> logits,
-            List<(int Time, int ClassIdx, float Score)> peaks,
-            string bestRaw,
-            string bestNorm,
-            float bestScore)
-        {
-            if (PlatePrefixScorer.ExtractPrefixConsonants(bestNorm) != "ตก" || peaks.Count == 0)
-                return bestRaw;
-
-            int thoIdx = CharToClassIndex('ฒ');
-            if (thoIdx <= 0)
-                return bestRaw;
-
-            float thoLogit = logits[0, peaks[0].Time, thoIdx];
-            if (thoLogit < peaks[0].Score - 2.55f)
-                return bestRaw;
-
-            var trialPeaks = peaks.ToList();
-            trialPeaks[0] = (peaks[0].Time, thoIdx, thoLogit);
-            string trialRaw = BuildTextFromPeaks(trialPeaks);
-            string trialNorm = ThaiPlateNumberNormalizer.Normalize(trialRaw);
-            if (PlatePrefixScorer.ExtractPrefixConsonants(trialNorm) != "ฒก")
-                return bestRaw;
-
-            float trialScore = ScorePlateLineCandidate(trialNorm, trialPeaks) + 0.45f;
-            return trialScore > bestScore ? trialRaw : bestRaw;
+            _ = logits;
+            _ = peaks;
+            return initialRaw;
         }
 
         private static float ScorePlateLineCandidate(
@@ -532,20 +444,6 @@ namespace ConsoleApp1
 
             float peakAvg = peaks.Count > 0 ? peaks.Average(p => p.Score) : -5f;
             return peakAvg + PlatePrefixScorer.ScorePlateNumber(normalized, peaks) + normalized.Length * 0.02f;
-        }
-
-        private static bool IsThaiConsonantChar(char c) => ThaiPlateCharset.IsPlateConsonant(c);
-
-        private int CharToClassIndex(char c)
-        {
-            string target = c.ToString();
-            for (int i = 0; i < _alphabet.Count; i++)
-            {
-                if (_alphabet[i] == target)
-                    return i + 1;
-            }
-
-            return 0;
         }
 
         private char ClassIndexToChar(int classIdx)
