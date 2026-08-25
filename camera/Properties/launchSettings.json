@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "Live (IP camera)": {
+      "commandName": "Project"
+    },
+    "Once": {
+      "commandName": "Project",
+      "commandLineArgs": "--once"
+    },
+    "Webcam": {
+      "commandName": "Project",
+      "commandLineArgs": "--webcam"
+    }
+  }
+}

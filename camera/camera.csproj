@@ -30,4 +30,10 @@
     </None>
   </ItemGroup>
 
+  <Target Name="DownloadOnnxModels" BeforeTargets="BeforeBuild"
+          Condition="'$(OS)' == 'Windows_NT' And (!Exists('$(MSBuildProjectDirectory)\Models\plate_rtdetr.onnx') Or !Exists('$(MSBuildProjectDirectory)\Models\th_pp-ocrv5_mobile_rec.onnx'))">
+    <Message Importance="high" Text="Downloading ONNX models into Models/ ..." />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\download-models.ps1&quot;" />
+  </Target>
+
 </Project>

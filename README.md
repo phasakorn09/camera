@@ -2,6 +2,19 @@
 
 แอป C# (.NET 10) สำหรับตรวจจับป้ายทะเบียนไทยจาก webcam หรือ RTSP แล้วอ่านตัวอักษรด้วย PaddleOCR
 
+## สิ่งที่มี / สิ่งที่ขาด
+
+| | สถานะ |
+|--|--------|
+| ซอร์สโค้ดอ่านป้ายไทย (ตรวจจับ + OCR + จังหวัด) | มีใน repo |
+| `camera.sln` / `camera.slnx` สำหรับ Visual Studio | มีใน repo |
+| พจนานุกรม `ppocrv5_th_dict.txt` | มีใน repo |
+| สคริปต์ดาวน์โหลดโมเดล `download-models.ps1` | มีใน repo — รันเองหรือดาวน์โหลดตอน build บน Windows |
+| โมเดล `plate_rtdetr.onnx` (~77 MB) | ไม่ได้อยู่ใน Git — ดาวน์โหลดด้วยสคริปต์ |
+| โมเดล `th_pp-ocrv5_mobile_rec.onnx` (~8 MB) | ไม่ได้อยู่ใน Git — ดาวน์โหลดด้วยสคริปต์ |
+| Windows + Visual Studio / .NET 10 SDK | ต้องมีบนเครื่องที่รัน |
+| กล้อง IP `192.168.254.6` ในวง LAN เดียวกับเครื่อง | ต้องมีตอนรันจริง |
+
 ## ความต้องการของระบบ
 
 - Windows 10/11
@@ -12,16 +25,22 @@
 ## โครงสร้างโปรเจกต์
 
 ```
+camera.sln / camera.slnx
 camera/
-├── camera/              # โปรเจกต์หลัก
-│   ├── Models/          # วางไฟล์โมเดลที่นี่
-│   └── *.cs
-└── camera.slnx
+├── camera.csproj
+├── Models/              # dict ใน git — ไฟล์ .onnx ดาวน์โหลดด้วยสคริปต์
+└── *.cs
 ```
 
 ## ติดตั้งโมเดล
 
-วางไฟล์ต่อไปนี้ใน `camera/Models/` (มี `Copy to Output Directory` ใน `.csproj` แล้ว):
+บน Windows โมเดลจะถูกดาวน์โหลดอัตโนมัติตอน build ครั้งแรก หรือรันที่ราก repo:
+
+```powershell
+.\download-models.ps1
+```
+
+ไฟล์จะไปอยู่ที่ `camera/Models/` (มี `Copy to Output Directory` ใน `.csproj` แล้ว):
 
 | ไฟล์ | หน้าที่ |
 |------|--------|
@@ -32,6 +51,16 @@ camera/
 > ไฟล์ `.onnx` ถูก ignore ใน Git เพราะขนาดใหญ่ (~77 MB + ~8 MB)
 
 ## รันโปรแกรม
+
+เปิด **`camera.sln`** ใน Visual Studio (หรือ `camera.slnx`) เลือกโปรไฟล์ Debug แล้วกด F5
+
+โปรไฟล์ใน Visual Studio:
+
+- **Live (IP camera)** — เปิดหน้าต่างกล้องต่อเนื่อง
+- **Once** — อ่านครั้งเดียวแล้วพิมพ์ผล
+- **Webcam** — ใช้กล้อง USB
+
+หรือจากเทอร์มินัล:
 
 ```powershell
 cd camera
