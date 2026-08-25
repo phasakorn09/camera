@@ -313,7 +313,7 @@ namespace ConsoleApp1
             if (topLineBgr.Empty() || topLineBgr.Width < 8 || topLineBgr.Height < 4)
                 return topLineBgr.Clone();
 
-            int cropW = Math.Clamp(topLineBgr.Width * 38 / 100, Math.Min(56, topLineBgr.Width), topLineBgr.Width);
+            int cropW = Math.Clamp(topLineBgr.Width * 44 / 100, Math.Min(64, topLineBgr.Width), topLineBgr.Width);
             int padY = Math.Max(2, topLineBgr.Height / 10);
 
             using var strip = new Mat(topLineBgr, new Rect(0, 0, cropW, topLineBgr.Height)).Clone();

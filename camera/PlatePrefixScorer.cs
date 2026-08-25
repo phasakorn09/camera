@@ -63,6 +63,8 @@ namespace ConsoleApp1
                 score += 0.25f;
             if (prefix.Length > 0 && prefix[0] is 'ฎ' or 'ฏ')
                 score += 0.2f;
+            if (prefix.Any(ThaiPlateLetterConfusion.IsRarePlateConsonant))
+                score += 0.18f;
 
             if (peaks != null && peaks.Count > 0)
                 score += peaks.Average(p => p.Score) * 0.08f;

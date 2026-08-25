@@ -17,9 +17,18 @@ namespace ConsoleApp1
             new[] { 'ฎ', 'ด', 'ธ' },
             new[] { 'บ', 'ป', 'พ', 'ฟ' },
             new[] { 'ส', 'ศ', 'ษ' },
-            new[] { 'น', 'ณ', 'ญ', 'ร' },
+            new[] { 'น', 'ณ' },
+            new[] { 'ญ', 'ย', 'น' },
+            new[] { 'ฬ', 'ล', 'ห' },
+            new[] { 'ฮ', 'ห', 'อ' },
             new[] { 'ข', 'ฃ', 'ค' },
             new[] { 'ม', 'น' },
+        };
+
+        /// <summary>พยัญชนะบนป้ายที่ OCR มักทิ้งหรือสลับเป็นตัวที่พบบ่อยกว่า</summary>
+        private static readonly HashSet<char> RarePlateConsonants = new()
+        {
+            'ฆ', 'ญ', 'ณ', 'ฬ', 'ฮ'
         };
 
         private static readonly Dictionary<string, string> SafePrefixFixes = new(StringComparer.Ordinal)
@@ -40,6 +49,9 @@ namespace ConsoleApp1
         };
 
         private static readonly Dictionary<char, char[]> PartnerCache = BuildPartnerCache();
+
+        public static bool IsRarePlateConsonant(char c) =>
+            RarePlateConsonants.Contains(c);
 
         public static IReadOnlyList<char> GetPartners(char c)
         {

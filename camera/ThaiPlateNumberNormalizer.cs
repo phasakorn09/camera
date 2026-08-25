@@ -17,10 +17,10 @@ namespace ConsoleApp1
 
         private static readonly HashSet<char> NoiseLeadConsonants = new() { 'อ', 'ล', 'ร' };
 
-        /// <summary>ตัvที่มักเป็น noise ท้าย prefix เมื่อ OCR อ่านเกิน 2 ตัv</summary>
+        /// <summary>ตัวที่มักเป็น noise ท้าย prefix เมื่อ OCR อ่านเกิน 2 ตัว — ไม่รวม ญ ณ เพราะใช้บนป้ายจริง</summary>
         private static readonly HashSet<char> TrailingPrefixNoise = new()
         {
-            'ร', 'น', 'ณ', 'ญ', 'ว', 'ล', 'ฤ', '์'
+            'ร', 'น', 'ว', 'ล', 'ฤ', '์'
         };
 
         public static string Normalize(string raw)
@@ -225,7 +225,10 @@ namespace ConsoleApp1
             else if (start == 1 && consonants.Length >= 3)
                 score += 2;
 
-            if (a is 'ฎ' or 'ฏ' or 'ฒ')
+            if (a is 'ฎ' or 'ฏ' or 'ฒ' || ThaiPlateLetterConfusion.IsRarePlateConsonant(a))
+                score += 2;
+
+            if (ThaiPlateLetterConfusion.IsRarePlateConsonant(b))
                 score += 2;
 
             if (TrailingPrefixNoise.Contains(b))

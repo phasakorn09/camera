@@ -423,6 +423,8 @@ namespace ConsoleApp1
                         effectiveMargin = Math.Max(effectiveMargin, 2.45f);
                     if (alt == 'ฏ' && current is 'ต' or 'ร')
                         effectiveMargin = Math.Max(effectiveMargin, 2.45f);
+                    if (isPrefixPeak && ThaiPlateLetterConfusion.IsRarePlateConsonant(alt))
+                        effectiveMargin = Math.Max(effectiveMargin, 2.45f);
 
                     if (altLogit < peaks[i].Score - effectiveMargin)
                         continue;
@@ -437,6 +439,8 @@ namespace ConsoleApp1
                         trialScore += thoKBonus;
                     if (i == 0 && alt is 'ฎ' or 'ฏ')
                         trialScore += 0.25f;
+                    if (isPrefixPeak && ThaiPlateLetterConfusion.IsRarePlateConsonant(alt))
+                        trialScore += 0.22f;
 
                     if (trialScore > bestScore && !string.IsNullOrWhiteSpace(trialNorm))
                     {
