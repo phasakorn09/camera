@@ -19,7 +19,7 @@ namespace ConsoleApp1
         private const int MaxCollectFrames = 8;
         private const int MinCollectFrames = 2;
         private const int PlateauFrames = 2;
-        private const double MinSharpnessForOcr = 20.0;
+        private const double MinSharpnessForOcr = 28.0;
         private const double GoodSharpnessEarly = 35.0;
         private const double ExcellentSharpnessEarly = 45.0;
         private const double ImageChangeMeanThreshold = 12.0;
@@ -215,6 +215,10 @@ namespace ConsoleApp1
                 return false;
 
             if (track.BestSharpness < MinSharpnessForOcr)
+                return false;
+
+            if (PlateImagePreprocessor.IsBlurry(track.BestCrop)
+                && track.BestSharpness < ExcellentSharpnessEarly)
                 return false;
 
             if (track.FrameCount >= MinCollectFrames)

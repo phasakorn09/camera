@@ -28,4 +28,14 @@ foreach ($file in $files) {
     Write-Host ("Saved {0} ({1:N1} MB)" -f $file.Name, ((Get-Item $dest).Length / 1MB))
 }
 
+$binModels = @(
+    (Join-Path $PSScriptRoot "camera\bin\Debug\net10.0\Models"),
+    (Join-Path $PSScriptRoot "camera\bin\Release\net10.0\Models")
+)
+foreach ($dir in $binModels) {
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Copy-Item -Path (Join-Path $modelsDir "*") -Destination $dir -Force
+    Write-Host "Copied models to $dir"
+}
+
 Write-Host "Models ready in $modelsDir"

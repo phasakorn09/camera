@@ -139,82 +139,20 @@ namespace ConsoleApp1
             if (consonants.Length <= 2)
                 return lettersWithPossibleLeadingDigits;
 
-            if (consonants == "ฐฐ")
-                return leading + "ฐฐ";
-
-            if (consonants.Length >= 2 && consonants[0] == consonants[1])
-                return leading + consonants[..2];
-
             while (consonants.Length > 2 && TrailingPrefixNoise.Contains(consonants[^1]))
                 consonants = consonants[..^1];
 
-            if (consonants.Length <= 2)
-                return leading + consonants;
+            if (consonants.Length > 2)
+                consonants = consonants[..2];
 
-            consonants = PickBestTwoConsonantWindow(consonants);
             return leading + consonants;
         }
 
-        private static string PickBestTwoConsonantWindow(string consonants)
-        {
-            if (consonants.Length <= 2)
-                return consonants;
-
-            string best = consonants[..2];
-            int bestScore = ScorePrefixPair(consonants, 0);
-
-            for (int start = 1; start <= consonants.Length - 2; start++)
-            {
-                int score = ScorePrefixPair(consonants, start);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = consonants.Substring(start, 2);
-                }
-            }
-
-            return best;
-        }
-
-        private static int ScorePrefixPair(string consonants, int start)
-        {
-            char a = consonants[start];
-            char b = consonants[start + 1];
-            int score = 0;
-
-            if (start == 0)
-                score += 3;
-            else if (start == 1 && consonants.Length >= 3)
-                score += 2;
-
-            if (TrailingPrefixNoise.Contains(b))
-                score -= 3;
-
-            if (TrailingPrefixNoise.Contains(a) && start > 0)
-                score -= 2;
-
-            if (NoiseLeadConsonants.Contains(a) && start == 0 && consonants.Length > 2)
-                score -= 1;
-
-            return score;
-        }
-
-        /// <summary>ปรับเลขหลัง parse — ใช้ร่วมกับ ThaiPlateNumberNormalizer.Normalize ได้</summary>
+        /// <summary>เก็บเลขที่ OCR อ่านได้ — ไม่เดา vanity / ไม่ดึงเลขให้ครบ 4 หลัก</summary>
         internal static string RefineDigits(string digits, string letters)
         {
-            if (string.IsNullOrEmpty(digits))
-                return string.Empty;
-
-            digits = FixSameDigitTrailingZero(digits);
-            digits = TrimShortPlateExtension(digits, letters);
-            digits = FixHomogeneousOutlier(digits);
-            digits = FixVanityDoublePattern(digits, letters);
-
-            // ไม่ขยาย 3→4 อัตโนมัติ — ป้าย 3 หลักจริng (122, 688, 888) จะไม่กลายเป็น 4 หลัก
-            if (digits.Length == MaxDigits)
-                return digits;
-
-            return digits;
+            _ = letters;
+            return digits ?? string.Empty;
         }
 
         /// <summary>4 หลักที่น่aเป็น vanity ขยายจาก 3 หลัก OCR (688→6688, 122→1222)</summary>
@@ -525,35 +463,11 @@ namespace ConsoleApp1
             return false;
         }
 
-        /// <summary>0266 / 2666 → 6666 (noise นำหน้าเลข vanity)</summary>
+        /// <summary>ตัด 0 นำหน้าเท่านั้น — ไม่เดาเลข vanity จากหลักที่เหลือ</summary>
         private static string StripLeadingDigitNoise(string digits)
         {
-            while (digits.Length > 0 && digits[0] == '0')
+            while (digits.Length > 1 && digits[0] == '0')
                 digits = digits[1..];
-
-            if (digits.Length >= 4 && digits[0] != digits[1])
-            {
-                string rest = digits[1..];
-                if (rest.Length == 3 && rest.All(c => c == rest[0]) && digits[0] != rest[0])
-                {
-                    string vanity = $"{digits[0]}{digits[0]}{rest[0]}{rest[0]}";
-                    if (IsAabbPattern(vanity))
-                        return vanity;
-                }
-            }
-
-            if (digits.Length >= 4 && digits[0] is '1' or '2' or '7')
-            {
-                string rest = digits[1..];
-                if (rest.Length == 3 && rest.All(c => c == rest[0]))
-                    digits = rest;
-                else
-                {
-                    string refined = FixSameDigitTrailingZero(rest);
-                    if (refined.Length == MaxDigits && refined.All(c => c == refined[0]))
-                        digits = refined;
-                }
-            }
 
             return digits;
         }
@@ -650,14 +564,7 @@ namespace ConsoleApp1
             if (window.Length != MaxDigits)
                 return 0;
 
-            int unique = window.Distinct().Count();
-            int score = unique * 50;
-
-            // เลขเบิ้ล AABB/ABBA/AAAA ชนะ diversity สูง
-            if (IsVanityDoublePattern(window))
-                score += 100;
-
-            return score;
+            return window.Distinct().Count() * 50;
         }
 
         private static bool TryExtractHomogeneousSpam(string digits, out string result)

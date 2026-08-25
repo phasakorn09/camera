@@ -241,18 +241,18 @@ namespace ConsoleApp1
             return result;
         }
 
-        /// <summary>Crop ป้ายจากเฟรม — padding เล็ก + จูนให้ชิดขอบตัวอักษร</summary>
+        /// <summary>Crop ป้ายจากเฟรม — padding พอให้ไม่ตัดขอบ ก/ฬ แล้วค่อยจูน</summary>
         public static Mat CropPlateForOcr(Mat frame, Rect box)
         {
-            int padX = Math.Clamp(box.Width / 32, 1, 4);
-            int padY = Math.Clamp(box.Height / 24, 1, 3);
+            int padX = Math.Clamp(box.Width / 14, 6, 18);
+            int padY = Math.Clamp(box.Height / 10, 4, 12);
 
             Rect expanded = ExpandRect(box, padX, padY, frame.Width, frame.Height);
             if (expanded.Width <= 0 || expanded.Height <= 0)
                 return new Mat();
 
             using var rough = new Mat(frame, expanded).Clone();
-            return TightenCropToPlateEdges(rough, edgeMargin: 2);
+            return TightenCropToPlateEdges(rough, edgeMargin: 4);
         }
 
         private static Rect ExpandRect(Rect box, int padX, int padY, int frameW, int frameH)
@@ -287,7 +287,7 @@ namespace ConsoleApp1
                 enhanced.CopyTo(work);
             }
 
-            using (var preTrim = TightenCropToPlateEdges(work, edgeMargin: 1))
+            using (var preTrim = TightenCropToPlateEdges(work, edgeMargin: 3))
             {
                 preTrim.CopyTo(work);
             }
@@ -297,7 +297,7 @@ namespace ConsoleApp1
                 straightened.CopyTo(work);
             }
 
-            using (var trimmed = TightenCropToPlateEdges(work, edgeMargin: 2))
+            using (var trimmed = TightenCropToPlateEdges(work, edgeMargin: 4))
             {
                 trimmed.CopyTo(work);
             }
@@ -313,7 +313,7 @@ namespace ConsoleApp1
             if (topLineBgr.Empty() || topLineBgr.Width < 8 || topLineBgr.Height < 4)
                 return topLineBgr.Clone();
 
-            int cropW = Math.Clamp(topLineBgr.Width * 44 / 100, Math.Min(64, topLineBgr.Width), topLineBgr.Width);
+            int cropW = Math.Clamp(topLineBgr.Width * 52 / 100, Math.Min(72, topLineBgr.Width), topLineBgr.Width);
             int padY = Math.Max(2, topLineBgr.Height / 10);
 
             using var strip = new Mat(topLineBgr, new Rect(0, 0, cropW, topLineBgr.Height)).Clone();
@@ -384,11 +384,43 @@ namespace ConsoleApp1
         public static void SplitPlateLines(Mat plateBgr, out Mat topLine, out Mat bottomLine, out int splitY)
         {
             splitY = FindLineSplitY(plateBgr);
-            splitY = Math.Clamp(splitY, plateBgr.Height / 4, plateBgr.Height * 3 / 4);
+            SplitPlateLinesAt(plateBgr, splitY, out topLine, out bottomLine);
+        }
 
+        public static void SplitPlateLinesAt(Mat plateBgr, int splitY, out Mat topLine, out Mat bottomLine)
+        {
+            splitY = Math.Clamp(splitY, plateBgr.Height / 4, plateBgr.Height * 3 / 4);
             topLine = new Mat(plateBgr, new Rect(0, 0, plateBgr.Width, splitY)).Clone();
             bottomLine = new Mat(plateBgr,
                 new Rect(0, splitY, plateBgr.Width, plateBgr.Height - splitY)).Clone();
+        }
+
+        /// <summary>ลองหลายจุดตัดบรรทัด แล้วให้ OCR เลือกผลที่ดีที่สุด</summary>
+        public static IReadOnlyList<int> CandidateLineSplits(Mat plateBgr)
+        {
+            int h = plateBgr.Rows;
+            var splits = new List<int>(4);
+
+            void Add(int y)
+            {
+                y = Math.Clamp(y, Math.Max(1, h / 4), Math.Max(1, h * 3 / 4));
+                if (!splits.Contains(y))
+                    splits.Add(y);
+            }
+
+            if (h >= 12)
+            {
+                Add(FindLineSplitY(plateBgr));
+                Add((int)(h * 0.50));
+                Add((int)(h * 0.55));
+                Add((int)(h * 0.62));
+            }
+            else
+            {
+                Add(Math.Max(1, h / 2));
+            }
+
+            return splits;
         }
 
         /// <summary>ตัดขอบว่าง/พื้นหลัง — ใช้ projection ของตัวอักษรให้ชิดขอบป้าย</summary>
@@ -507,8 +539,8 @@ namespace ConsoleApp1
                 return false;
 
             // กัน crop มากเกินไปเมื่อ projection พลาด
-            return bounds.Width >= srcW * 45 / 100
-                && bounds.Height >= srcH * 40 / 100
+            return bounds.Width >= srcW * 58 / 100
+                && bounds.Height >= srcH * 50 / 100
                 && bounds.Width <= srcW
                 && bounds.Height <= srcH;
         }
@@ -548,10 +580,11 @@ namespace ConsoleApp1
             Cv2.CvtColor(bgr, gray, ColorConversionCodes.BGR2GRAY);
 
             var rowInk = new int[h];
+            int cols = gray.Cols;
             for (int y = 0; y < h; y++)
             {
                 int sum = 0;
-                for (int x = 0; x < gray.Cols; x++)
+                for (int x = 0; x < cols; x++)
                 {
                     if (gray.At<byte>(y, x) < 140)
                         sum++;

@@ -22,12 +22,35 @@ namespace ConsoleApp1
             if (skeleton.Length == 0)
                 return string.Empty;
 
+            foreach (var province in Provinces)
+            {
+                if (normalized == province)
+                    return province;
+            }
+
+            string? exactSkeleton = null;
+            int exactCount = 0;
+            foreach (var province in Provinces)
+            {
+                if (ConsonantSkeleton(province) != skeleton)
+                    continue;
+                exactSkeleton = province;
+                exactCount++;
+            }
+            if (exactCount == 1)
+                return exactSkeleton!;
+
+            if (skeleton.Length < 3)
+                return string.Empty;
+
             string? best = null;
             int bestScore = int.MaxValue;
 
             foreach (var province in Provinces)
             {
                 string pSkeleton = ConsonantSkeleton(province);
+                if (pSkeleton.Length < 3)
+                    continue;
 
                 if (skeleton.Contains(pSkeleton, StringComparison.Ordinal)
                     || pSkeleton.Contains(skeleton, StringComparison.Ordinal))
@@ -41,10 +64,12 @@ namespace ConsoleApp1
                     continue;
                 }
 
+                if (skeleton.Length < 4)
+                    continue;
+
                 int distSkel = Levenshtein(skeleton, pSkeleton);
                 int distFull = Levenshtein(normalized, province);
                 int score = Math.Min(distSkel, distFull);
-
                 if (score < bestScore)
                 {
                     bestScore = score;
@@ -55,7 +80,7 @@ namespace ConsoleApp1
             if (best == null)
                 return string.Empty;
 
-            int threshold = Math.Max(2, ConsonantSkeleton(best).Length / 3);
+            int threshold = Math.Max(1, ConsonantSkeleton(best).Length / 4);
             return bestScore <= threshold ? best : string.Empty;
         }
 

@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <StartupObject>ConsoleApp1.Program</StartupObject>
+    <DefaultLaunchProfileName>Live (IP camera)</DefaultLaunchProfileName>
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,21 +22,30 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Models\plate_rtdetr.onnx">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Models\th_pp-ocrv5_mobile_rec.onnx">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Models\ppocrv5_th_dict.txt">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <None Update="Models\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="DownloadOnnxModels" BeforeTargets="BeforeBuild"
-          Condition="'$(OS)' == 'Windows_NT' And (!Exists('$(MSBuildProjectDirectory)\Models\plate_rtdetr.onnx') Or !Exists('$(MSBuildProjectDirectory)\Models\th_pp-ocrv5_mobile_rec.onnx'))">
-    <Message Importance="high" Text="Downloading ONNX models into Models/ ..." />
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\download-models.ps1&quot;" />
+          Condition="'$(OS)' == 'Windows_NT'">
+    <PropertyGroup>
+      <_NeedOnnx Condition="!Exists('$(MSBuildProjectDirectory)\Models\plate_rtdetr.onnx') Or !Exists('$(MSBuildProjectDirectory)\Models\th_pp-ocrv5_mobile_rec.onnx')">true</_NeedOnnx>
+      <_DownloadScript>$(MSBuildProjectDirectory)\..\download-models.ps1</_DownloadScript>
+      <_DownloadScript Condition="!Exists('$(_DownloadScript)')">$(MSBuildProjectDirectory)\download-models.ps1</_DownloadScript>
+    </PropertyGroup>
+    <Message Condition="'$(_NeedOnnx)' == 'true'" Importance="high" Text="Downloading ONNX models into Models/ ..." />
+    <Exec Condition="'$(_NeedOnnx)' == 'true' And Exists('$(_DownloadScript)')"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(_DownloadScript)&quot;" />
+  </Target>
+
+  <Target Name="CopyModelsToOutput" AfterTargets="Build">
+    <ItemGroup>
+      <_LocalModelFiles Include="$(MSBuildProjectDirectory)\Models\*.*" />
+    </ItemGroup>
+    <MakeDir Directories="$(TargetDir)Models" />
+    <Copy SourceFiles="@(_LocalModelFiles)"
+          DestinationFolder="$(TargetDir)Models"
+          SkipUnchangedFiles="true"
+          Condition="'@(_LocalModelFiles)' != ''" />
   </Target>
 
 </Project>

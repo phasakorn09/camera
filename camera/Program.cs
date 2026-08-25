@@ -43,19 +43,20 @@ namespace ConsoleApp1
         // ปรับด้วยปุ่ม [ และ ] บนหน้าต่างวิดีโอ
         private static volatile int _sharpnessLevel = 0;
 
+        [STAThread]
         static void Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            string modelsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Models");
-            string modelPath = System.IO.Path.Combine(modelsDir, "plate_rtdetr.onnx");
-            string ocrModelPath = System.IO.Path.Combine(modelsDir, "th_pp-ocrv5_mobile_rec.onnx");
-            string ocrDictPath = System.IO.Path.Combine(modelsDir, "ppocrv5_th_dict.txt");
+            string modelsDir = ModelLocator.ResolveDirectory();
+            string modelPath = System.IO.Path.Combine(modelsDir, ModelLocator.DetectorFile);
+            string ocrModelPath = System.IO.Path.Combine(modelsDir, ModelLocator.OcrFile);
+            string ocrDictPath = System.IO.Path.Combine(modelsDir, ModelLocator.DictFile);
 
             if (!System.IO.File.Exists(modelPath))
             {
                 Console.WriteLine($"ไม่พบไฟล์โมเดลที่: {modelPath}");
-                Console.WriteLine("ตรวจสอบว่าได้วาง plate_rtdetr.onnx ไว้ใน Models/ และตั้งค่า Copy to Output Directory แล้ว");
+                Console.WriteLine("วาง plate_rtdetr.onnx ไว้ใน camera\\Models แล้วกด Build อีกครั้ง");
                 if (!CameraSource.WantsOnce(args))
                     Console.ReadKey();
                 return;
@@ -75,13 +76,25 @@ namespace ConsoleApp1
             using var ocr = new PaddleOcrRecognizer(ocrModelPath, ocrDictPath);
 
             bool once = CameraSource.WantsOnce(args);
-            using var capture = CameraSource.Open(args, out string cameraSource);
+
+            Environment.SetEnvironmentVariable(
+                "OPENCV_FFMPEG_CAPTURE_OPTIONS",
+                "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
+
+            // ไม่ใช้ --webcam จาก launch profile — สลับเองตรงนี้แล้วกด F5
+            // true  = webcam โน้ตบุ๊ก
+            // false = กล้อง IP RTSP
+            const bool useWebcam = false;
+            const string rtspUrl = "rtsp://admin:Admin1234@192.168.254.6:554/Streaming/Channels/101";
+
+            using var capture = useWebcam ? new VideoCapture(0) : new VideoCapture(rtspUrl);
+            string cameraSource = useWebcam ? "webcam 0" : rtspUrl;
             capture.Set(VideoCaptureProperties.BufferSize, 1);
 
             if (!capture.IsOpened())
             {
                 Console.WriteLine($"ไม่สามารถเปิดกล้องได้ ({cameraSource})");
-                Console.WriteLine("ค่าเริ่มต้นคือ IP 192.168.254.6 — ตั้ง CAMERA_URL / CAMERA_PASSWORD หรือใช้ --webcam");
+                Console.WriteLine("ตั้ง useWebcam = true สำหรับ webcam หรือแก้ rtspUrl ให้ตรงกล้อง");
                 if (!once)
                     Console.ReadKey();
                 return;

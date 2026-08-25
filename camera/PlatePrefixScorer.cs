@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace ConsoleApp1
 {
-    /// <summary>ให้คะแนน prefix หลัง normalize — ช่วยเลือก ฒก แทน ตก เมื่อ logit ใกล้กัน</summary>
+    /// <summary>ให้คะแนนรูปแบบป้ายหลัง normalize — ไม่สลับตัวอักษร</summary>
     internal static class PlatePrefixScorer
     {
         public static string ExtractPrefixConsonants(string normalizedPlate)

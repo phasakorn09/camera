@@ -39,12 +39,6 @@ namespace ConsoleApp1
             if (consonantCount >= 1 && consonantCount <= 2)
                 return true;
 
-            if (consonants == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(consonants))
-                return true;
-
-            if (consonantCount >= 2 && consonants.Length >= 2 && consonants[0] == consonants[1])
-                return true;
-
             reason = "prefix";
             return false;
         }
