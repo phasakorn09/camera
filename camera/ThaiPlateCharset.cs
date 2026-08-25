@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace ConsoleApp1
 {
@@ -10,6 +12,8 @@ namespace ConsoleApp1
     {
         public const string Consonants =
             "กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ";
+
+        private static readonly HashSet<string> ProvinceSet;
 
         public static readonly string[] Provinces =
         {
@@ -98,6 +102,7 @@ namespace ConsoleApp1
                 throw new InvalidOperationException("Thai plate consonants must be the 44 official letters.");
             if (Provinces.Length != 77)
                 throw new InvalidOperationException("Thai plate provinces must be all 77 jurisdictions.");
+            ProvinceSet = new HashSet<string>(Provinces, StringComparer.Ordinal);
         }
 
         public static bool IsPlateConsonant(char c) =>
@@ -128,6 +133,53 @@ namespace ConsoleApp1
             if (string.IsNullOrEmpty(digits) || digits.Length > 4 || !digits.All(IsPlateDigit))
                 return false;
             return int.TryParse(digits, out int value) && IsValidPlateNumber(value);
+        }
+
+        public static bool IsOfficialProvince(string name) =>
+            !string.IsNullOrWhiteSpace(name) && ProvinceSet.Contains(name);
+
+        /// <summary>เก็บเฉพาะพยัญชนะป้าย + เลข — ทิ้งอังกฤษ/สัญลักษณ์ทั้งหมด</summary>
+        public static string KeepPlateNumberText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var sb = new StringBuilder(text.Length);
+            foreach (char c in text)
+            {
+                if (IsPlateNumberChar(c))
+                    sb.Append(c);
+                else if (IsThaiDigit(c))
+                    sb.Append((char)('0' + (c - '\u0E50')));
+                else if (c == ' ')
+                    sb.Append(' ');
+            }
+
+            return CollapseSpaces(sb.ToString());
+        }
+
+        private static string CollapseSpaces(string text)
+        {
+            var sb = new StringBuilder(text.Length);
+            bool prevSpace = false;
+            foreach (char c in text)
+            {
+                if (c == ' ')
+                {
+                    if (prevSpace || sb.Length == 0)
+                        continue;
+                    prevSpace = true;
+                    sb.Append(' ');
+                    continue;
+                }
+
+                prevSpace = false;
+                sb.Append(c);
+            }
+
+            if (sb.Length > 0 && sb[^1] == ' ')
+                sb.Length--;
+            return sb.ToString();
         }
     }
 }

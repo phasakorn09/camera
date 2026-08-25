@@ -18,6 +18,8 @@ namespace ConsoleApp1
         private readonly string _inputName;
         private readonly int _outputChars;
         private readonly List<string> _alphabet;
+        private readonly bool[] _allowedPlateNumberClass;
+        private readonly bool[] _allowedProvinceClass;
 
         private const int InputHeight = 48;
         // กว้างขึ้น = time step มากขึ้น ลดการอ่านขาดตัวท้าย (6กท 6688)
@@ -42,6 +44,36 @@ namespace ConsoleApp1
             _outputChars = outputMeta.Dimensions[^1];
 
             _alphabet = LoadDictionary(dictPath);
+            (_allowedPlateNumberClass, _allowedProvinceClass) = BuildAllowedClassMasks(_alphabet, _outputChars);
+        }
+
+        /// <summary>จำคลาส CTC ที่เป็นพยัญชนะ 44 ตัว / เลข / อักขระจังหวัด — ตัดอังกฤษและสัญลักษณ์</summary>
+        private static (bool[] PlateNumber, bool[] Province) BuildAllowedClassMasks(
+            List<string> alphabet,
+            int outputChars)
+        {
+            int size = Math.Max(outputChars, alphabet.Count + 1);
+            var plateNumber = new bool[size];
+            var province = new bool[size];
+            plateNumber[0] = true;
+            province[0] = true;
+
+            for (int i = 0; i < alphabet.Count; i++)
+            {
+                int classIdx = i + 1;
+                if (classIdx >= size)
+                    break;
+                if (alphabet[i].Length != 1)
+                    continue;
+
+                char ch = alphabet[i][0];
+                if (ThaiPlateCharset.IsPlateNumberChar(ch) || ThaiPlateCharset.IsThaiDigit(ch))
+                    plateNumber[classIdx] = true;
+                if (ThaiPlateCharset.IsProvinceChar(ch))
+                    province[classIdx] = true;
+            }
+
+            return (plateNumber, province);
         }
 
         public ThaiPlateReadResult RecognizeThaiPlateFromFrame(Mat frame, Rect plateBox, int padding = 10)
@@ -106,7 +138,13 @@ namespace ConsoleApp1
             try
             {
                 var (plateNumber, plateScore) = RecognizePlateNumberLine(topLine);
+                plateNumber = ThaiPlateCharset.KeepPlateNumberText(plateNumber);
+                if (!ThaiPlateResultValidator.IsValid(plateNumber, out _))
+                    plateNumber = string.Empty;
+
                 string province = RecognizeProvinceLine(bottomLine, plateNumber);
+                if (!ThaiPlateCharset.IsOfficialProvince(province))
+                    province = string.Empty;
 
                 float qualityScore = plateScore;
                 if (!string.IsNullOrWhiteSpace(province))
@@ -740,16 +778,13 @@ namespace ConsoleApp1
         /// </summary>
         private bool IsAllowedPlateClass(int classIdx, bool plateTopLine, bool isProvinceLine)
         {
-            char ch = ClassIndexToChar(classIdx);
-            if (ch == '\0')
+            if (classIdx <= 0 || classIdx >= _allowedPlateNumberClass.Length)
                 return false;
             if (isProvinceLine)
-                return ThaiPlateCharset.IsProvinceChar(ch);
+                return _allowedProvinceClass[classIdx];
             if (plateTopLine)
-                return ThaiPlateCharset.IsPlateNumberChar(ch) || ThaiPlateCharset.IsThaiDigit(ch);
-            return ThaiPlateCharset.IsPlateNumberChar(ch)
-                || ThaiPlateCharset.IsThaiDigit(ch)
-                || ThaiPlateCharset.IsProvinceChar(ch);
+                return _allowedPlateNumberClass[classIdx];
+            return _allowedPlateNumberClass[classIdx] || _allowedProvinceClass[classIdx];
         }
 
         private string DecodeCtcStandard(Tensor<float> logits) =>

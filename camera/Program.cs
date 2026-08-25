@@ -93,7 +93,7 @@ namespace ConsoleApp1
             Console.WriteLine($"CSV log: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures", "plates.csv")}");
             Console.WriteLine("ESC = ออก  |  [ = ลดความคมชัด  |  ] = เพิ่มความคมชัด");
 
-            string windowName = "License Plate Detection - RT-DETRv2";
+            string windowName = "อ่านป้ายทะเบียนไทย";
             if (!once)
                 Cv2.NamedWindow(windowName, WindowFlags.Normal);
 
@@ -193,7 +193,8 @@ namespace ConsoleApp1
                     if (det.HasOcrResult)
                     {
                         int labelY = det.Box.Y - 8;
-                        if (!string.IsNullOrWhiteSpace(det.PlateNumber))
+                        if (!string.IsNullOrWhiteSpace(det.PlateNumber)
+                            && ThaiPlateResultValidator.IsValid(det.PlateNumber, out _))
                         {
                             var numSize = ThaiTextRenderer.MeasureText(det.PlateNumber, 18f);
                             labelY -= numSize.Height + 4;
@@ -204,7 +205,8 @@ namespace ConsoleApp1
                                 bgColor: SD.Color.FromArgb(255, 0, 255, 255));
                         }
 
-                        if (!string.IsNullOrWhiteSpace(det.Province))
+                        if (!string.IsNullOrWhiteSpace(det.Province)
+                            && ThaiPlateCharset.IsOfficialProvince(det.Province))
                         {
                             var provSize = ThaiTextRenderer.MeasureText(det.Province, 15f);
                             labelY -= provSize.Height + 4;
@@ -225,15 +227,13 @@ namespace ConsoleApp1
                     }
                     else
                     {
-                        string fallback = $"plate {det.Confidence:F2}";
-                        int baseline;
-                        var textSize = Cv2.GetTextSize(fallback, HersheyFonts.HersheySimplex, 0.55, 1, out baseline);
-                        var bgTL = new Point(det.Box.X, det.Box.Y - textSize.Height - 6);
-                        var bgBR = new Point(det.Box.X + textSize.Width + 4, det.Box.Y);
-                        Cv2.Rectangle(showFrame, bgTL, bgBR, new Scalar(0, 255, 255), thickness: -1);
-                        Cv2.PutText(showFrame, fallback,
-                            new Point(det.Box.X + 2, det.Box.Y - 4),
-                            HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 0, 0), thickness: 1);
+                        const string fallback = "พบป้าย";
+                        var fallbackSize = ThaiTextRenderer.MeasureText(fallback, 16f);
+                        ThaiTextRenderer.DrawText(showFrame, fallback,
+                            new Point(det.Box.X, det.Box.Y - fallbackSize.Height - 8),
+                            fontSize: 16f,
+                            textColor: SD.Color.Black,
+                            bgColor: SD.Color.FromArgb(255, 0, 255, 255));
                     }
                 }
 
@@ -246,14 +246,13 @@ namespace ConsoleApp1
                     fpsTimer.Restart();
                 }
 
-                string sharpText = _sharpnessLevel == 0 ? "off" : _sharpnessLevel.ToString();
-                string osd = $"FPS: {displayedFps:F1}   Sharp: {sharpText}  ( [ ] )";
-
-                // วาด outline ดำก่อน แล้วตามด้วยตัวอักษรเขียว ทำให้อ่านได้บนทุกสีพื้นหลัง
-                Cv2.PutText(showFrame, osd, new Point(8, 24),
-                    HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 0, 0), thickness: 3);
-                Cv2.PutText(showFrame, osd, new Point(8, 24),
-                    HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 230, 0), thickness: 1);
+                string sharpText = _sharpnessLevel == 0 ? "ปิด" : _sharpnessLevel.ToString();
+                string osd = $"เฟรม {displayedFps:F0}   ความคม {sharpText}  กด [ ]";
+                ThaiTextRenderer.DrawText(showFrame, osd,
+                    new Point(8, 8),
+                    fontSize: 16f,
+                    textColor: SD.Color.FromArgb(255, 40, 230, 40),
+                    bgColor: SD.Color.FromArgb(180, 0, 0, 0));
 
                 using var composite = ComposeFrameWithOcrPanel(showFrame, previews);
                 DisposeOcrPreviews(previews);
@@ -487,8 +486,8 @@ namespace ConsoleApp1
             float progress = collected / (float)target;
 
             string detailText = det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr
-                ? $"sharp {det.CollectSharpness:F0}"
-                : $"{collected}/{target}  sharp {det.CollectSharpness:F0}";
+                ? $"คม {det.CollectSharpness:F0}"
+                : $"{collected}/{target}  คม {det.CollectSharpness:F0}";
 
             int labelY = det.Box.Y - 8;
             var statusSize = ThaiTextRenderer.MeasureText(statusText, 16f);
@@ -499,15 +498,13 @@ namespace ConsoleApp1
                 textColor: SD.Color.Black,
                 bgColor: SD.Color.FromArgb(255, 255, 210, 120));
 
-            int baseline;
-            var detailSize = Cv2.GetTextSize(detailText, HersheyFonts.HersheySimplex, 0.48, 1, out baseline);
-            labelY -= detailSize.Height + 6;
-            var detailBgTl = new Point(det.Box.X, labelY - detailSize.Height - 2);
-            var detailBgBr = new Point(det.Box.X + detailSize.Width + 6, labelY + 2);
-            Cv2.Rectangle(frame, detailBgTl, detailBgBr, new Scalar(255, 220, 160), thickness: -1);
-            Cv2.PutText(frame, detailText,
-                new Point(det.Box.X + 3, labelY),
-                HersheyFonts.HersheySimplex, 0.48, new Scalar(20, 20, 20), thickness: 1);
+            var detailSize = ThaiTextRenderer.MeasureText(detailText, 13f);
+            labelY -= detailSize.Height + 4;
+            ThaiTextRenderer.DrawText(frame, detailText,
+                new Point(det.Box.X, labelY),
+                fontSize: 13f,
+                textColor: SD.Color.FromArgb(255, 20, 20, 20),
+                bgColor: SD.Color.FromArgb(255, 255, 220, 160));
 
             int barY = det.Box.Y + det.Box.Height + 4;
             int barW = Math.Max(det.Box.Width, 80);
@@ -555,9 +552,11 @@ namespace ConsoleApp1
 
             DrawSemiTransparentRect(composite, new Rect(x0, y0, overlayW, overlayH), 0.70);
 
-            Cv2.PutText(composite, "OCR",
-                new Point(x0 + 6, y0 + 12),
-                HersheyFonts.HersheySimplex, 0.40, new Scalar(200, 200, 200), 1);
+            ThaiTextRenderer.DrawText(composite, "ป้ายที่อ่านได้",
+                new Point(x0 + 6, y0 + 2),
+                fontSize: 11f,
+                textColor: SD.Color.FromArgb(255, 200, 200, 200),
+                bgColor: null);
 
             int y = y0 + 18;
             for (int i = 0; i < count; i++)
@@ -586,7 +585,8 @@ namespace ConsoleApp1
                 int textX = thumbX + PreviewThumbMaxW + 6;
                 int textY = y + 2;
 
-                if (!string.IsNullOrWhiteSpace(preview.PlateNumber))
+                if (!string.IsNullOrWhiteSpace(preview.PlateNumber)
+                    && ThaiPlateResultValidator.IsValid(preview.PlateNumber, out _))
                 {
                     ThaiTextRenderer.DrawText(composite, preview.PlateNumber,
                         new Point(textX, textY),
@@ -596,7 +596,8 @@ namespace ConsoleApp1
                     textY += 16;
                 }
 
-                if (!string.IsNullOrWhiteSpace(preview.Province))
+                if (!string.IsNullOrWhiteSpace(preview.Province)
+                    && ThaiPlateCharset.IsOfficialProvince(preview.Province))
                 {
                     ThaiTextRenderer.DrawText(composite, preview.Province,
                         new Point(textX, textY),
