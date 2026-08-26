@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Hello Web",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-hello-web",
+      "program": "${workspaceFolder}/web/bin/Debug/net10.0/HelloWeb.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/web",
+      "stopAtEntry": false,
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Now listening on: (https?://\\S+)"
+      }
+    }
+  ]
+}

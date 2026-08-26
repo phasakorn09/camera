@@ -61,3 +61,10 @@ Pipeline: จับเฟรม → RT-DETR หาป้าย → ตัด/ป
 - [OpenCvSharp4](https://github.com/shimat/opencvsharp) — วิดีโอและประมวลผลภาพ
 - [ONNX Runtime](https://onnxruntime.ai/) — inference
 - RT-DETR + PaddleOCR Thai PP-OCRv5
+
+## หน้าเว็บ Hello
+
+โปรเจกต์ `web/HelloWeb.csproj` เป็นหน้าเว็บเปล่า มีข้อความ Hello ตรงกลางจอ
+
+- เปิดดูไฟล์ได้ที่ `web/wwwroot/index.html`
+- วิธีรันใน Visual Studio: ดู `web/README.md`
