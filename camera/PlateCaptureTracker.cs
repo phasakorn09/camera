@@ -19,7 +19,7 @@ namespace ConsoleApp1
         private const int MaxCollectFrames = 8;
         private const int MinCollectFrames = 2;
         private const int PlateauFrames = 2;
-        private const double MinSharpnessForOcr = 20.0;
+        private const double MinSharpnessForOcr = 28.0;
         private const double GoodSharpnessEarly = 35.0;
         private const double ExcellentSharpnessEarly = 45.0;
         private const double ImageChangeMeanThreshold = 12.0;
@@ -202,11 +202,11 @@ namespace ConsoleApp1
                 return true;
 
             if (track.BestSharpness >= GoodSharpnessEarly &&
-                track.FrameCount >= MinCollectFrames &&
+                track.FrameCount >= 4 &&
                 track.PlateauCount >= PlateauFrames)
                 return true;
 
-            return track.FrameCount >= MinCollectFrames && track.PlateauCount >= PlateauFrames;
+            return false;
         }
 
         private static bool IsReadyForOcr(CaptureTrack track)
@@ -215,6 +215,10 @@ namespace ConsoleApp1
                 return false;
 
             if (track.BestSharpness < MinSharpnessForOcr)
+                return false;
+
+            if (PlateImagePreprocessor.IsBlurry(track.BestCrop)
+                && track.BestSharpness < ExcellentSharpnessEarly)
                 return false;
 
             if (track.FrameCount >= MinCollectFrames)
@@ -236,7 +240,6 @@ namespace ConsoleApp1
             track.IsFinalized = true;
 
             var (ocrResult, previewImage) = ocr.RecognizeCropWithPreview(track.BestCrop!);
-            ocrResult = ApplyDigitAnchor(ocrResult);
 
             bool isValidated = ThaiPlateResultValidator.IsValid(ocrResult.PlateNumber, out _);
             bool shouldLog = isValidated && ShouldLogResult(
@@ -261,6 +264,7 @@ namespace ConsoleApp1
                 savedPath,
                 track.BestConfidence,
                 track.BestSharpness,
+                ocrResult.ReadQualityScore,
                 track.FrameCount,
                 isValidated,
                 shouldLog,
@@ -576,6 +580,7 @@ namespace ConsoleApp1
         string SavedImagePath,
         float DetectConfidence,
         double SharpnessScore,
+        float ReadQualityScore,
         int FramesCollected,
         bool IsValidated,
         bool ShouldLog,

@@ -17,21 +17,18 @@ namespace ConsoleApp1
             new[] { 'ฎ', 'ด', 'ธ' },
             new[] { 'บ', 'ป', 'พ', 'ฟ' },
             new[] { 'ส', 'ศ', 'ษ' },
-            new[] { 'น', 'ณ', 'ญ', 'ร' },
+            new[] { 'น', 'ณ' },
+            new[] { 'ญ', 'ย', 'น' },
+            new[] { 'ฬ', 'ล', 'ห' },
+            new[] { 'ฮ', 'ห', 'อ' },
             new[] { 'ข', 'ฃ', 'ค' },
             new[] { 'ม', 'น' },
         };
 
-        private static readonly Dictionary<string, string> SafePrefixFixes = new(StringComparer.Ordinal)
+        /// <summary>พยัญชนะบนป้ายที่ OCR มักทิ้งหรือสลับเป็นตัวที่พบบ่อยกว่า</summary>
+        private static readonly HashSet<char> RarePlateConsonants = new()
         {
-            ["สข"] = "สช",
-            ["รฐ"] = "ฐฐ",
-            ["ฐร"] = "ฐฐ",
-            ["ฐย"] = "ฐฐ",
-            ["ลฐ"] = "ฐฐ",
-            ["ยฐ"] = "ฐฐ",
-            ["นฐ"] = "ฐฐ",
-            ["รฏ"] = "ฐฐ",
+            'ฆ', 'ญ', 'ณ', 'ฬ', 'ฮ'
         };
 
         private static readonly HashSet<char> ThoPlateNoiseChars = new()
@@ -40,6 +37,9 @@ namespace ConsoleApp1
         };
 
         private static readonly Dictionary<char, char[]> PartnerCache = BuildPartnerCache();
+
+        public static bool IsRarePlateConsonant(char c) =>
+            RarePlateConsonants.Contains(c);
 
         public static IReadOnlyList<char> GetPartners(char c)
         {
@@ -56,36 +56,11 @@ namespace ConsoleApp1
             return GetPartners(expected).Contains(read);
         }
 
-        /// <summary>แก้ prefix หลัง OCR — กฎที่ปลอดภัยเท่านั้น</summary>
+        /// <summary>ไม่เดาตัวอักษรหลัง OCR — คืนค่าที่โมเดลอ่านได้ตามจริง</summary>
         public static string FixPrefix(string letters, string digitHint = "")
         {
-            if (string.IsNullOrEmpty(letters))
-                return letters;
-
-            int consonantStart = 0;
-            while (consonantStart < letters.Length && char.IsDigit(letters[consonantStart]))
-                consonantStart++;
-
-            string leading = letters[..consonantStart];
-            string consonants = letters[consonantStart..];
-
-            if (SafePrefixFixes.TryGetValue(consonants, out string? fixedPrefix)
-                && ShouldApplySafePrefixFix(consonants, fixedPrefix, digitHint))
-                return leading + fixedPrefix;
-
-            string thoFixed = TryFixThoThoPrefix(consonants);
-            if (thoFixed != consonants)
-                return leading + thoFixed;
-
+            _ = digitHint;
             return letters;
-        }
-
-        private static bool ShouldApplySafePrefixFix(string consonants, string fixedPrefix, string digitHint)
-        {
-            if (consonants == "รฏ" && fixedPrefix == "ฐฐ")
-                return digitHint.StartsWith("69", StringComparison.Ordinal);
-
-            return true;
         }
 
         /// <summary>ฐฐ 69 — OCR ได้ ฐร / ลฐ / รฏ / ฐรฐ</summary>

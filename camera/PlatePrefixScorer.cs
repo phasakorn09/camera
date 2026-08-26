@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace ConsoleApp1
 {
-    /// <summary>ให้คะแนน prefix หลัง normalize — ช่วยเลือก ฒก แทน ตก เมื่อ logit ใกล้กัน</summary>
+    /// <summary>ให้คะแนนรูปแบบป้ายหลัง normalize — ไม่สลับตัวอักษร</summary>
     internal static class PlatePrefixScorer
     {
         public static string ExtractPrefixConsonants(string normalizedPlate)
@@ -12,7 +12,7 @@ namespace ConsoleApp1
             if (string.IsNullOrWhiteSpace(normalizedPlate))
                 return string.Empty;
 
-            SplitParts(normalizedPlate.Trim(), out string lettersPart, out _);
+            ThaiPlateParts.Split(normalizedPlate.Trim(), out string lettersPart, out _);
 
             int start = 0;
             while (start < lettersPart.Length && char.IsDigit(lettersPart[start]))
@@ -22,7 +22,7 @@ namespace ConsoleApp1
             for (int i = start; i < lettersPart.Length && consonants.Count < 2; i++)
             {
                 char c = lettersPart[i];
-                if (c >= '\u0E01' && c <= '\u0E2E')
+                if (ThaiPlateCharset.IsPlateConsonant(c))
                     consonants.Add(c);
             }
 
@@ -34,7 +34,7 @@ namespace ConsoleApp1
             if (string.IsNullOrWhiteSpace(normalizedPlate))
                 return string.Empty;
 
-            SplitParts(normalizedPlate.Trim(), out _, out string digitsPart);
+            ThaiPlateParts.Split(normalizedPlate.Trim(), out _, out string digitsPart);
             return digitsPart;
         }
 
@@ -58,49 +58,10 @@ namespace ConsoleApp1
             if (digits.Length >= 1 && digits.Length <= 4 && digits.All(char.IsDigit))
                 score += 0.2f;
 
-            string prefix = ExtractPrefixConsonants(normalized);
-            if (prefix == "ฒก")
-                score += 0.25f;
-            if (prefix.Length > 0 && prefix[0] is 'ฎ' or 'ฏ')
-                score += 0.2f;
-
             if (peaks != null && peaks.Count > 0)
                 score += peaks.Average(p => p.Score) * 0.08f;
 
             return score;
-        }
-
-        private static void SplitParts(string normalized, out string lettersPart, out string digitsPart)
-        {
-            lettersPart = string.Empty;
-            digitsPart = string.Empty;
-
-            int space = normalized.IndexOf(' ');
-            if (space > 0)
-            {
-                lettersPart = normalized[..space].Trim();
-                digitsPart = normalized[(space + 1)..].Trim();
-                return;
-            }
-
-            int firstDigit = -1;
-            for (int i = 0; i < normalized.Length; i++)
-            {
-                if (char.IsDigit(normalized[i]))
-                {
-                    firstDigit = i;
-                    break;
-                }
-            }
-
-            if (firstDigit < 0)
-            {
-                lettersPart = normalized;
-                return;
-            }
-
-            lettersPart = normalized[..firstDigit].Trim();
-            digitsPart = normalized[firstDigit..].Trim();
         }
 
         private static int CountPrefixConsonants(string normalized)
@@ -113,7 +74,7 @@ namespace ConsoleApp1
             int count = 0;
             foreach (char c in letterPart)
             {
-                if (c >= '\u0E01' && c <= '\u0E2E')
+                if (ThaiPlateCharset.IsPlateConsonant(c))
                     count++;
             }
 

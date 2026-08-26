@@ -26,10 +26,14 @@ namespace ConsoleApp1
             {
                 EnsureHeader();
 
+                var reading = ThaiPlateVisionReport.FromCapture(in capture);
                 string line = string.Join(",",
                     Escape(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)),
                     Escape(capture.PlateNumber),
+                    Escape(reading.Letters),
+                    Escape(reading.Digits),
                     Escape(capture.Province),
+                    Escape(reading.Confidence),
                     capture.DetectConfidence.ToString("F2", CultureInfo.InvariantCulture),
                     capture.SharpnessScore.ToString("F1", CultureInfo.InvariantCulture),
                     capture.FramesCollected.ToString(CultureInfo.InvariantCulture),
@@ -47,7 +51,7 @@ namespace ConsoleApp1
                 return;
 
             const string header =
-                "timestamp,plate,province,detect_conf,sharp,frames,validated,logged,image_path";
+                "timestamp,plate,letters,digits,province,confidence,detect_conf,sharp,frames,validated,logged,image_path";
             File.WriteAllText(_csvPath, header + Environment.NewLine, Encoding.UTF8);
         }
 

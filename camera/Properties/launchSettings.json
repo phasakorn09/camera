@@ -1,0 +1,18 @@
+{
+  "profiles": {
+    "Webcam": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)"
+    },
+    "Live (IP camera)": {
+      "commandName": "Project",
+      "commandLineArgs": "--ip-camera",
+      "workingDirectory": "$(ProjectDir)"
+    },
+    "Once": {
+      "commandName": "Project",
+      "commandLineArgs": "--once",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}

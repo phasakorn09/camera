@@ -35,24 +35,30 @@ namespace ConsoleApp1
 
         private static volatile bool _running = true;
 
+        private static readonly List<ThaiPlateVisionReading> _visionReadings = new();
+        private static readonly object _visionLock = new();
+        private static int _plateDetectionCount;
+
         // ── Sharpness: 0 = ปิด, 1–5 = คมชัดมากขึ้นเรื่อยๆ ────────────────────
         // ปรับด้วยปุ่ม [ และ ] บนหน้าต่างวิดีโอ
         private static volatile int _sharpnessLevel = 0;
 
+        [STAThread]
         static void Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            string modelsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "Models");
-            string modelPath = System.IO.Path.Combine(modelsDir, "plate_rtdetr.onnx");
-            string ocrModelPath = System.IO.Path.Combine(modelsDir, "th_pp-ocrv5_mobile_rec.onnx");
-            string ocrDictPath = System.IO.Path.Combine(modelsDir, "ppocrv5_th_dict.txt");
+            string modelsDir = ModelLocator.ResolveDirectory();
+            string modelPath = System.IO.Path.Combine(modelsDir, ModelLocator.DetectorFile);
+            string ocrModelPath = System.IO.Path.Combine(modelsDir, ModelLocator.OcrFile);
+            string ocrDictPath = System.IO.Path.Combine(modelsDir, ModelLocator.DictFile);
 
             if (!System.IO.File.Exists(modelPath))
             {
                 Console.WriteLine($"ไม่พบไฟล์โมเดลที่: {modelPath}");
-                Console.WriteLine("ตรวจสอบว่าได้วาง plate_rtdetr.onnx ไว้ใน Models/ และตั้งค่า Copy to Output Directory แล้ว");
-                Console.ReadKey();
+                Console.WriteLine("วาง plate_rtdetr.onnx ไว้ใน camera\\Models แล้วกด Build อีกครั้ง");
+                if (!CameraSource.WantsOnce(args))
+                    Console.ReadKey();
                 return;
             }
 
@@ -61,38 +67,48 @@ namespace ConsoleApp1
                 Console.WriteLine("ไม่พบโมเดล PaddleOCR ภาษาไทย:");
                 Console.WriteLine($"  - {ocrModelPath}");
                 Console.WriteLine($"  - {ocrDictPath}");
-                Console.ReadKey();
+                if (!CameraSource.WantsOnce(args))
+                    Console.ReadKey();
                 return;
             }
 
             using var detector = new RtDetrDetector(modelPath);
             using var ocr = new PaddleOcrRecognizer(ocrModelPath, ocrDictPath);
 
+            bool once = CameraSource.WantsOnce(args);
+
             Environment.SetEnvironmentVariable(
                 "OPENCV_FFMPEG_CAPTURE_OPTIONS",
                 "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
 
-            // สลับบรรทัดด้านล่างเพื่อเปลี่ยนระหว่าง webcam กับ RTSP
-            //string rtspUrl = "rtsp://admin:Admin1234@192.168.11.80:554/Streaming/Channels/101";
-            //using var capture = new VideoCapture(rtspUrl);
-            using var capture = new VideoCapture(0);
+            // ไม่ใช้ --webcam จาก launch profile — สลับเองตรงนี้แล้วกด F5
+            // true  = webcam โน้ตบุ๊ก (ค่าเริ่มต้นตอนนี้)
+            // false = กล้อง IP RTSP (ค่อยเปิดทีหลัง)
+            const bool useWebcam = true;
+            const string rtspUrl = "rtsp://admin:Admin1234@192.168.254.6:554/Streaming/Channels/101";
+
+            using var capture = useWebcam ? new VideoCapture(0) : new VideoCapture(rtspUrl);
+            string cameraSource = useWebcam ? "webcam โน้ตบุ๊ก" : rtspUrl;
             capture.Set(VideoCaptureProperties.BufferSize, 1);
 
             if (!capture.IsOpened())
             {
-                Console.WriteLine("ไม่สามารถเปิดกล้องได้ ตรวจสอบว่ากล้องไม่ได้ถูกโปรแกรมอื่นใช้งานอยู่");
-                Console.ReadKey();
+                Console.WriteLine($"ไม่สามารถเปิดกล้องได้ ({cameraSource})");
+                Console.WriteLine("ตรวจว่า webcam โน้ตบุ๊กไม่ได้ถูกโปรแกรมอื่นใช้ค้างไว้");
+                if (!once)
+                    Console.ReadKey();
                 return;
             }
 
-            Console.WriteLine("เปิดกล้องสำเร็จ");
+            Console.WriteLine($"เปิดกล้องสำเร็จ: {cameraSource} (ยังไม่ต่อกล้อง IP)");
             Console.WriteLine("RT-DETR = หาป้าย  |  PaddleOCR = อ่านครั้งเดียวเมื่อได้ crop ชัดที่สุด");
             Console.WriteLine($"บันทึก crop ป้ายที่: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures")}");
             Console.WriteLine($"CSV log: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures", "plates.csv")}");
             Console.WriteLine("ESC = ออก  |  [ = ลดความคมชัด  |  ] = เพิ่มความคมชัด");
 
-            string windowName = "License Plate Detection - RT-DETRv2";
-            Cv2.NamedWindow(windowName, WindowFlags.Normal);
+            string windowName = "อ่านป้ายทะเบียนไทย";
+            if (!once)
+                Cv2.NamedWindow(windowName, WindowFlags.Normal);
 
             // Thread 1: อ่านเฟรมจากกล้องต่อเนื่อง ป้อนทั้ง display และ detector
             var grabberThread = new Thread(() => GrabberLoop(capture))
@@ -109,6 +125,19 @@ namespace ConsoleApp1
                 Name = "Detector"
             };
             detectorThread.Start();
+
+            if (once)
+            {
+                RunOnceAnalysis(TimeSpan.FromSeconds(10));
+                _running = false;
+                grabberThread.Join(2000);
+                detectorThread.Join(2000);
+                _displayFrame?.Dispose();
+                _pendingFrame?.Dispose();
+                DisposeOcrPreviews(_lastOcrPreviews);
+                capture.Release();
+                return;
+            }
 
             // ── Main thread: Display loop วิ่งที่ FPS กล้อง ไม่รอ inference ──
             var fpsTimer = Stopwatch.StartNew();
@@ -177,7 +206,8 @@ namespace ConsoleApp1
                     if (det.HasOcrResult)
                     {
                         int labelY = det.Box.Y - 8;
-                        if (!string.IsNullOrWhiteSpace(det.PlateNumber))
+                        if (!string.IsNullOrWhiteSpace(det.PlateNumber)
+                            && ThaiPlateResultValidator.IsValid(det.PlateNumber, out _))
                         {
                             var numSize = ThaiTextRenderer.MeasureText(det.PlateNumber, 18f);
                             labelY -= numSize.Height + 4;
@@ -188,7 +218,8 @@ namespace ConsoleApp1
                                 bgColor: SD.Color.FromArgb(255, 0, 255, 255));
                         }
 
-                        if (!string.IsNullOrWhiteSpace(det.Province))
+                        if (!string.IsNullOrWhiteSpace(det.Province)
+                            && ThaiPlateCharset.IsOfficialProvince(det.Province))
                         {
                             var provSize = ThaiTextRenderer.MeasureText(det.Province, 15f);
                             labelY -= provSize.Height + 4;
@@ -209,15 +240,13 @@ namespace ConsoleApp1
                     }
                     else
                     {
-                        string fallback = $"plate {det.Confidence:F2}";
-                        int baseline;
-                        var textSize = Cv2.GetTextSize(fallback, HersheyFonts.HersheySimplex, 0.55, 1, out baseline);
-                        var bgTL = new Point(det.Box.X, det.Box.Y - textSize.Height - 6);
-                        var bgBR = new Point(det.Box.X + textSize.Width + 4, det.Box.Y);
-                        Cv2.Rectangle(showFrame, bgTL, bgBR, new Scalar(0, 255, 255), thickness: -1);
-                        Cv2.PutText(showFrame, fallback,
-                            new Point(det.Box.X + 2, det.Box.Y - 4),
-                            HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 0, 0), thickness: 1);
+                        const string fallback = "พบป้าย";
+                        var fallbackSize = ThaiTextRenderer.MeasureText(fallback, 16f);
+                        ThaiTextRenderer.DrawText(showFrame, fallback,
+                            new Point(det.Box.X, det.Box.Y - fallbackSize.Height - 8),
+                            fontSize: 16f,
+                            textColor: SD.Color.Black,
+                            bgColor: SD.Color.FromArgb(255, 0, 255, 255));
                     }
                 }
 
@@ -230,14 +259,13 @@ namespace ConsoleApp1
                     fpsTimer.Restart();
                 }
 
-                string sharpText = _sharpnessLevel == 0 ? "off" : _sharpnessLevel.ToString();
-                string osd = $"FPS: {displayedFps:F1}   Sharp: {sharpText}  ( [ ] )";
-
-                // วาด outline ดำก่อน แล้วตามด้วยตัวอักษรเขียว ทำให้อ่านได้บนทุกสีพื้นหลัง
-                Cv2.PutText(showFrame, osd, new Point(8, 24),
-                    HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 0, 0), thickness: 3);
-                Cv2.PutText(showFrame, osd, new Point(8, 24),
-                    HersheyFonts.HersheySimplex, 0.55, new Scalar(0, 230, 0), thickness: 1);
+                string sharpText = _sharpnessLevel == 0 ? "ปิด" : _sharpnessLevel.ToString();
+                string osd = $"เฟรม {displayedFps:F0}   ความคม {sharpText}  กด [ ]";
+                ThaiTextRenderer.DrawText(showFrame, osd,
+                    new Point(8, 8),
+                    fontSize: 16f,
+                    textColor: SD.Color.FromArgb(255, 40, 230, 40),
+                    bgColor: SD.Color.FromArgb(180, 0, 0, 0));
 
                 using var composite = ComposeFrameWithOcrPanel(showFrame, previews);
                 DisposeOcrPreviews(previews);
@@ -266,6 +294,43 @@ namespace ConsoleApp1
             DisposeOcrPreviews(_lastOcrPreviews);
             capture.Release();
             Cv2.DestroyAllWindows();
+        }
+
+
+        private static void RecordVisionCapture(in PlateCaptureResult capture)
+        {
+            var reading = ThaiPlateVisionReport.FromCapture(in capture);
+            lock (_visionLock)
+            {
+                bool duplicate = _visionReadings.Any(r =>
+                    r.CanReport && reading.CanReport &&
+                    r.Letters == reading.Letters &&
+                    r.Digits == reading.Digits &&
+                    r.Province == reading.Province);
+                if (!duplicate)
+                    _visionReadings.Add(reading);
+            }
+        }
+
+        private static void RunOnceAnalysis(TimeSpan timeout)
+        {
+            Console.WriteLine($"วิเคราะห์ภาพจากกล้องสูงสุด {timeout.TotalSeconds:0} วินาที...");
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < timeout)
+            {
+                lock (_visionLock)
+                {
+                    if (_visionReadings.Any(r => r.CanReport) && sw.Elapsed > TimeSpan.FromSeconds(2))
+                        break;
+                }
+                Thread.Sleep(50);
+            }
+
+            List<ThaiPlateVisionReading> snapshot;
+            lock (_visionLock)
+                snapshot = _visionReadings.ToList();
+
+            Console.WriteLine(ThaiPlateVisionReport.FormatSummary(snapshot, _plateDetectionCount > 0));
         }
 
         // ── Thread 1: Grabber ────────────────────────────────────────────────
@@ -333,6 +398,8 @@ namespace ConsoleApp1
                 }
 
                 var results = detector.Detect(detectionFrame);
+                if (results.Count > 0)
+                    System.Threading.Interlocked.Add(ref _plateDetectionCount, results.Count);
                 var finalized = _captureTracker.ProcessFrame(detectionFrame, results, ocr);
                 var newPreviews = new List<PlateOcrPreview>();
 
@@ -354,14 +421,17 @@ namespace ConsoleApp1
                         capture.PreviewImage?.Dispose();
                     }
 
+                    RecordVisionCapture(in capture);
                     if (!capture.ShouldLog)
                         continue;
 
-                    Console.WriteLine(
-                        $"[OCR] เลข: {capture.PlateNumber}  |  จังหวัด: {capture.Province}  " +
-                        $"(detect: {capture.DetectConfidence:F2}, sharp: {capture.SharpnessScore:F1}, " +
-                        $"frames: {capture.FramesCollected})");
-                    Console.WriteLine($"       saved: {capture.SavedImagePath}");
+                    var reading = ThaiPlateVisionReport.FromCapture(in capture);
+                    if (reading.CanReport)
+                        Console.WriteLine(ThaiPlateVisionReport.FormatReading(reading, 1));
+                    else
+                        Console.WriteLine(ThaiPlateVisionReport.VehicleNoPlate);
+                    if (!string.IsNullOrWhiteSpace(capture.SavedImagePath))
+                        Console.WriteLine($"       saved: {capture.SavedImagePath}");
                 }
 
                 lock (_resultsLock)
@@ -429,8 +499,8 @@ namespace ConsoleApp1
             float progress = collected / (float)target;
 
             string detailText = det.CapturePhase == PlateCaptureUiPhase.ProcessingOcr
-                ? $"sharp {det.CollectSharpness:F0}"
-                : $"{collected}/{target}  sharp {det.CollectSharpness:F0}";
+                ? $"คม {det.CollectSharpness:F0}"
+                : $"{collected}/{target}  คม {det.CollectSharpness:F0}";
 
             int labelY = det.Box.Y - 8;
             var statusSize = ThaiTextRenderer.MeasureText(statusText, 16f);
@@ -441,15 +511,13 @@ namespace ConsoleApp1
                 textColor: SD.Color.Black,
                 bgColor: SD.Color.FromArgb(255, 255, 210, 120));
 
-            int baseline;
-            var detailSize = Cv2.GetTextSize(detailText, HersheyFonts.HersheySimplex, 0.48, 1, out baseline);
-            labelY -= detailSize.Height + 6;
-            var detailBgTl = new Point(det.Box.X, labelY - detailSize.Height - 2);
-            var detailBgBr = new Point(det.Box.X + detailSize.Width + 6, labelY + 2);
-            Cv2.Rectangle(frame, detailBgTl, detailBgBr, new Scalar(255, 220, 160), thickness: -1);
-            Cv2.PutText(frame, detailText,
-                new Point(det.Box.X + 3, labelY),
-                HersheyFonts.HersheySimplex, 0.48, new Scalar(20, 20, 20), thickness: 1);
+            var detailSize = ThaiTextRenderer.MeasureText(detailText, 13f);
+            labelY -= detailSize.Height + 4;
+            ThaiTextRenderer.DrawText(frame, detailText,
+                new Point(det.Box.X, labelY),
+                fontSize: 13f,
+                textColor: SD.Color.FromArgb(255, 20, 20, 20),
+                bgColor: SD.Color.FromArgb(255, 255, 220, 160));
 
             int barY = det.Box.Y + det.Box.Height + 4;
             int barW = Math.Max(det.Box.Width, 80);
@@ -497,9 +565,11 @@ namespace ConsoleApp1
 
             DrawSemiTransparentRect(composite, new Rect(x0, y0, overlayW, overlayH), 0.70);
 
-            Cv2.PutText(composite, "OCR",
-                new Point(x0 + 6, y0 + 12),
-                HersheyFonts.HersheySimplex, 0.40, new Scalar(200, 200, 200), 1);
+            ThaiTextRenderer.DrawText(composite, "ป้ายที่อ่านได้",
+                new Point(x0 + 6, y0 + 2),
+                fontSize: 11f,
+                textColor: SD.Color.FromArgb(255, 200, 200, 200),
+                bgColor: null);
 
             int y = y0 + 18;
             for (int i = 0; i < count; i++)
@@ -528,7 +598,8 @@ namespace ConsoleApp1
                 int textX = thumbX + PreviewThumbMaxW + 6;
                 int textY = y + 2;
 
-                if (!string.IsNullOrWhiteSpace(preview.PlateNumber))
+                if (!string.IsNullOrWhiteSpace(preview.PlateNumber)
+                    && ThaiPlateResultValidator.IsValid(preview.PlateNumber, out _))
                 {
                     ThaiTextRenderer.DrawText(composite, preview.PlateNumber,
                         new Point(textX, textY),
@@ -538,7 +609,8 @@ namespace ConsoleApp1
                     textY += 16;
                 }
 
-                if (!string.IsNullOrWhiteSpace(preview.Province))
+                if (!string.IsNullOrWhiteSpace(preview.Province)
+                    && ThaiPlateCharset.IsOfficialProvince(preview.Province))
                 {
                     ThaiTextRenderer.DrawText(composite, preview.Province,
                         new Point(textX, textY),

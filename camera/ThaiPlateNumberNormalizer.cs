@@ -17,10 +17,10 @@ namespace ConsoleApp1
 
         private static readonly HashSet<char> NoiseLeadConsonants = new() { 'อ', 'ล', 'ร' };
 
-        /// <summary>ตัvที่มักเป็น noise ท้าย prefix เมื่อ OCR อ่านเกิน 2 ตัv</summary>
+        /// <summary>ตัวที่มักเป็น noise ท้าย prefix เมื่อ OCR อ่านเกิน 2 ตัว — ไม่รวม ญ ณ เพราะใช้บนป้ายจริง</summary>
         private static readonly HashSet<char> TrailingPrefixNoise = new()
         {
-            'ร', 'น', 'ณ', 'ญ', 'ว', 'ล', 'ฤ', '์'
+            'ร', 'น', 'ว', 'ล', 'ฤ', '์'
         };
 
         public static string Normalize(string raw)
@@ -33,16 +33,16 @@ namespace ConsoleApp1
             {
                 if (char.IsDigit(c))
                     stream.Add(c);
-                else if (IsThaiConsonant(c))
+                else if (ThaiPlateCharset.IsPlateConsonant(c))
                     stream.Add(c);
-                else if (IsThaiDigit(c))
+                else if (ThaiPlateCharset.IsThaiDigit(c))
                     stream.Add((char)('0' + (c - '\u0E50')));
             }
 
             if (stream.Count == 0)
                 return string.Empty;
 
-            int firstConsonantIdx = stream.FindIndex(IsThaiConsonant);
+            int firstConsonantIdx = stream.FindIndex(ThaiPlateCharset.IsPlateConsonant);
             if (firstConsonantIdx < 0)
             {
                 string digitsOnly = StripLeadingDigitNoise(new string(stream.Where(char.IsDigit).ToArray()));
@@ -63,7 +63,7 @@ namespace ConsoleApp1
 
             int i = firstConsonantIdx;
             int consonantCount = 0;
-            while (i < stream.Count && IsThaiConsonant(stream[i]) && consonantCount < MaxConsonants + 2)
+            while (i < stream.Count && ThaiPlateCharset.IsPlateConsonant(stream[i]) && consonantCount < MaxConsonants + 2)
             {
                 letters.Append(stream[i]);
                 i++;
@@ -80,8 +80,7 @@ namespace ConsoleApp1
             FixLetterMisreads(letters);
 
             string digitsRaw = ExtractBestDigits(new string(digitChars.ToArray()));
-            string lettersFinal = ThaiPlateLetterConfusion.FixPrefix(letters.ToString(), digitsRaw);
-            lettersFinal = TrimExcessPrefixConsonants(lettersFinal);
+            string lettersFinal = TrimExcessPrefixConsonants(letters.ToString());
             string digitsFinal = FinalizeDigits(digitsRaw, lettersFinal);
 
             if (lettersFinal.Length == 0 && digitsFinal.Length == 0)
@@ -111,44 +110,7 @@ namespace ConsoleApp1
             while (consonantStart < letters.Length && char.IsDigit(letters[consonantStart]))
                 consonantStart++;
 
-            for (int j = consonantStart; j < letters.Length; j++)
-            {
-                if (letters[j] == '0')
-                    letters[j] = 'ก';
-            }
-
-            FixRedPlateLetters(letters, consonantStart);
             TrimLeadingNoiseConsonants(letters, consonantStart);
-
-            ThaiPlateLetterConfusion.ApplyStringBuilderFixes(letters);
-
-            string consonants = letters.ToString(consonantStart, letters.Length - consonantStart);
-
-            if (consonants == "ว")
-                letters.Insert(consonantStart, 'ก');
-            else if (consonants == "ย")
-                letters.Insert(consonantStart, 'ก');
-
-            if (letters.Length > consonantStart + 1
-                && letters[^1] == '1'
-                && IsThaiConsonant(letters[^2]))
-            {
-                letters[^1] = 'ท';
-            }
-        }
-
-        private static void FixRedPlateLetters(StringBuilder letters, int consonantStart)
-        {
-            if (letters.Length <= consonantStart || letters[consonantStart] != '6')
-                return;
-
-            string tail = letters.ToString(consonantStart + 1, letters.Length - consonantStart - 1);
-            if (tail == "ก")
-                letters.Append('ท');
-            else if (tail == "ท")
-                letters.Insert(consonantStart + 1, 'ก');
-            else if (tail == "ก1")
-                letters[^1] = 'ท';
         }
 
         private static void TrimLeadingNoiseConsonants(StringBuilder letters, int consonantStart)
@@ -177,85 +139,20 @@ namespace ConsoleApp1
             if (consonants.Length <= 2)
                 return lettersWithPossibleLeadingDigits;
 
-            if (consonants == "ฐฐ" || ThaiPlateLetterConfusion.IsThoThoLikePrefix(consonants))
-                return leading + "ฐฐ";
-
-            if (consonants.Length >= 2 && consonants[0] == consonants[1])
-                return leading + consonants[..2];
-
             while (consonants.Length > 2 && TrailingPrefixNoise.Contains(consonants[^1]))
                 consonants = consonants[..^1];
 
-            if (consonants.Length <= 2)
-                return leading + consonants;
+            if (consonants.Length > 2)
+                consonants = consonants[..2];
 
-            consonants = PickBestTwoConsonantWindow(consonants);
             return leading + consonants;
         }
 
-        private static string PickBestTwoConsonantWindow(string consonants)
-        {
-            if (consonants.Length <= 2)
-                return consonants;
-
-            string best = consonants[..2];
-            int bestScore = ScorePrefixPair(consonants, 0);
-
-            for (int start = 1; start <= consonants.Length - 2; start++)
-            {
-                int score = ScorePrefixPair(consonants, start);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = consonants.Substring(start, 2);
-                }
-            }
-
-            return best;
-        }
-
-        private static int ScorePrefixPair(string consonants, int start)
-        {
-            char a = consonants[start];
-            char b = consonants[start + 1];
-            int score = 0;
-
-            if (start == 0)
-                score += 3;
-            else if (start == 1 && consonants.Length >= 3)
-                score += 2;
-
-            if (a is 'ฎ' or 'ฏ' or 'ฒ')
-                score += 2;
-
-            if (TrailingPrefixNoise.Contains(b))
-                score -= 3;
-
-            if (TrailingPrefixNoise.Contains(a) && start > 0)
-                score -= 2;
-
-            if (NoiseLeadConsonants.Contains(a) && start == 0 && consonants.Length > 2)
-                score -= 1;
-
-            return score;
-        }
-
-        /// <summary>ปรับเลขหลัง parse — ใช้ร่วมกับ ThaiPlateNumberNormalizer.Normalize ได้</summary>
+        /// <summary>เก็บเลขที่ OCR อ่านได้ — ไม่เดา vanity / ไม่ดึงเลขให้ครบ 4 หลัก</summary>
         internal static string RefineDigits(string digits, string letters)
         {
-            if (string.IsNullOrEmpty(digits))
-                return string.Empty;
-
-            digits = FixSameDigitTrailingZero(digits);
-            digits = TrimShortPlateExtension(digits, letters);
-            digits = FixHomogeneousOutlier(digits);
-            digits = FixVanityDoublePattern(digits, letters);
-
-            // ไม่ขยาย 3→4 อัตโนมัติ — ป้าย 3 หลักจริng (122, 688, 888) จะไม่กลายเป็น 4 หลัก
-            if (digits.Length == MaxDigits)
-                return digits;
-
-            return digits;
+            _ = letters;
+            return digits ?? string.Empty;
         }
 
         /// <summary>4 หลักที่น่aเป็น vanity ขยายจาก 3 หลัก OCR (688→6688, 122→1222)</summary>
@@ -566,35 +463,11 @@ namespace ConsoleApp1
             return false;
         }
 
-        /// <summary>0266 / 2666 → 6666 (noise นำหน้าเลข vanity)</summary>
+        /// <summary>ตัด 0 นำหน้าเท่านั้น — ไม่เดาเลข vanity จากหลักที่เหลือ</summary>
         private static string StripLeadingDigitNoise(string digits)
         {
-            while (digits.Length > 0 && digits[0] == '0')
+            while (digits.Length > 1 && digits[0] == '0')
                 digits = digits[1..];
-
-            if (digits.Length >= 4 && digits[0] != digits[1])
-            {
-                string rest = digits[1..];
-                if (rest.Length == 3 && rest.All(c => c == rest[0]) && digits[0] != rest[0])
-                {
-                    string vanity = $"{digits[0]}{digits[0]}{rest[0]}{rest[0]}";
-                    if (IsAabbPattern(vanity))
-                        return vanity;
-                }
-            }
-
-            if (digits.Length >= 4 && digits[0] is '1' or '2' or '7')
-            {
-                string rest = digits[1..];
-                if (rest.Length == 3 && rest.All(c => c == rest[0]))
-                    digits = rest;
-                else
-                {
-                    string refined = FixSameDigitTrailingZero(rest);
-                    if (refined.Length == MaxDigits && refined.All(c => c == refined[0]))
-                        digits = refined;
-                }
-            }
 
             return digits;
         }
@@ -691,14 +564,7 @@ namespace ConsoleApp1
             if (window.Length != MaxDigits)
                 return 0;
 
-            int unique = window.Distinct().Count();
-            int score = unique * 50;
-
-            // เลขเบิ้ล AABB/ABBA/AAAA ชนะ diversity สูง
-            if (IsVanityDoublePattern(window))
-                score += 100;
-
-            return score;
+            return window.Distinct().Count() * 50;
         }
 
         private static bool TryExtractHomogeneousSpam(string digits, out string result)
@@ -800,10 +666,5 @@ namespace ConsoleApp1
             return digits;
         }
 
-        private static bool IsThaiConsonant(char c) =>
-            c >= '\u0E01' && c <= '\u0E2E';
-
-        private static bool IsThaiDigit(char c) =>
-            c >= '\u0E50' && c <= '\u0E59';
     }
 }
