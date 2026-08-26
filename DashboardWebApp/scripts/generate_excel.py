@@ -9,7 +9,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "DashboardWebApp" / "App_Data" / "test4.xlsx"
+OUTPUT = ROOT / "App_Data" / "test4.xlsx"
 
 
 def style_header(ws, columns):

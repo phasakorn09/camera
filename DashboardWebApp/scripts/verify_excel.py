@@ -10,9 +10,9 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 ROOT = Path(__file__).resolve().parents[1]
-XLSX = ROOT / "DashboardWebApp" / "App_Data" / "test4.xlsx"
-CSS = ROOT / "DashboardWebApp" / "Content" / "css" / "dashboard.css"
-PREVIEW = ROOT / "DashboardWebApp" / "preview.html"
+XLSX = ROOT / "App_Data" / "test4.xlsx"
+CSS = ROOT / "Content" / "css" / "dashboard.css"
+PREVIEW = ROOT / "preview.html"
 
 
 def sheet_rows(ws):

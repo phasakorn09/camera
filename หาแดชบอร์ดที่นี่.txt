@@ -1,0 +1,27 @@
+หาโฟลเดอร์แดชบอร์ดไม่เจอ — อ่านไฟล์นี้
+
+โปรเจกต์ ASP.NET Web Forms อยู่ที่โฟลเดอร์นี้ใน repo:
+
+  DashboardWebApp\
+      index.aspx              ← หน้าเริ่มต้น
+      App_Data\test4.xlsx     ← ไฟล์ Excel ตัวอย่าง
+      DashboardWebApp.csproj
+
+ไฟล์ที่เปิดใน Visual Studio 2026:
+
+  DashboardWebApp.sln         ← อยู่รากของ repo (ข้างๆ โฟลเดอร์ camera)
+
+บนเครื่อง Windows หลัง clone/download จะอยู่ประมาณ:
+
+  C:\Users\<ชื่อคุณ>\Downloads\camera\DashboardWebApp.sln
+  หรือ
+  C:\Users\<ชื่อคุณ>\source\repos\camera\DashboardWebApp.sln
+
+ยังไม่มีโฟลเดอร์ C:\DashboardWebApp จนกว่าจะสร้างเอง
+ถ้าต้องการวางที่ไดรฟ์ C: ให้ดับเบิลคลิก
+
+  คัดลอกไป-C-DashboardWebApp.bat
+
+จากนั้นเปิด
+
+  C:\DashboardWebApp\DashboardWebApp.sln

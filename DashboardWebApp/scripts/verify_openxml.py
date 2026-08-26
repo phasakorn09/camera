@@ -10,7 +10,7 @@ from xml.etree import ElementTree as ET
 MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 PKG_REL = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 OFFICE_REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-XLSX = Path(__file__).resolve().parents[1] / "DashboardWebApp" / "App_Data" / "test4.xlsx"
+XLSX = Path(__file__).resolve().parents[1] / "App_Data" / "test4.xlsx"
 
 
 def col_index(cell_ref: str) -> int:
