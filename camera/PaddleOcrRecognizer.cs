@@ -184,7 +184,27 @@ namespace ConsoleApp1
                 return false;
             if (current == null || string.IsNullOrWhiteSpace(current.PlateNumber))
                 return true;
+
+            int candidateRank = PlateReadRank(candidate.PlateNumber);
+            int currentRank = PlateReadRank(current.PlateNumber);
+            if (candidateRank != currentRank)
+                return candidateRank > currentRank;
+
             return candidate.ReadQualityScore > current.ReadQualityScore;
+        }
+
+        private static int PlateReadRank(string plateNumber)
+        {
+            SplitPlateParts(plateNumber, out string letters, out string digits);
+            int consonants = CountThaiConsonants(letters);
+            bool valid = ThaiPlateResultValidator.IsValid(plateNumber, out _);
+            if (valid && consonants >= 1 && consonants <= 2 && digits.Length >= 1)
+                return 3;
+            if (consonants >= 1 && digits.Length >= 1)
+                return 2;
+            if (consonants >= 1 || digits.Length >= 1)
+                return 1;
+            return 0;
         }
 
         private string RecognizeProvinceLine(Mat bottomLine, string plateNumber)
@@ -195,7 +215,9 @@ namespace ConsoleApp1
             string provinceRaw = RecognizeLine(bottomLine, isProvinceLine: true);
             string province = ThaiProvinceMatcher.Match(provinceRaw);
 
-            if (!string.IsNullOrWhiteSpace(province) || string.IsNullOrWhiteSpace(plateNumber))
+            if (!string.IsNullOrWhiteSpace(province)
+                || string.IsNullOrWhiteSpace(plateNumber)
+                || PlateImagePreprocessor.IsAlreadyClear(bottomLine))
                 return province;
 
             using (var enhanced = PlateImagePreprocessor.EnhanceProvinceLineForOcr(bottomLine))
@@ -220,6 +242,8 @@ namespace ConsoleApp1
                 return (string.Empty, float.MinValue);
 
             var (fullText, fullScore) = RecognizeLineDualPass(topLine, emphasizeLetters: false);
+            if (IsCompletePlateNumber(fullText) || PlateImagePreprocessor.IsAlreadyClear(topLine))
+                return (fullText, fullScore);
 
             using var prefixStrip = PlateImagePreprocessor.ExtractPlatePrefixStrip(topLine);
             var (prefixText, prefixScore) = RecognizeLineDualPass(prefixStrip, emphasizeLetters: true);
@@ -235,6 +259,10 @@ namespace ConsoleApp1
         private (string Text, float Score) RecognizeLineDualPass(Mat lineBgr, bool emphasizeLetters)
         {
             var (text, score) = TryRecognizeLineOnce(lineBgr, isProvinceLine: false, emphasizeLetters);
+            if (PlateImagePreprocessor.IsAlreadyClear(lineBgr)
+                || (!PlateImagePreprocessor.IsBlurry(lineBgr) && IsStrongRead(text, score)))
+                return (text, score);
+
             using var sharpLine = PlateImagePreprocessor.SharpenForOcr(lineBgr);
             var (sharpText, sharpScore) = TryRecognizeLineOnce(sharpLine, isProvinceLine: false, emphasizeLetters);
 
@@ -245,6 +273,18 @@ namespace ConsoleApp1
                 return (sharpText, sharpScore);
 
             return (text, score);
+        }
+
+        private static bool IsCompletePlateNumber(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text) || !ThaiPlateResultValidator.IsValid(text, out _))
+                return false;
+
+            SplitPlateParts(text, out string letters, out string digits);
+            return CountThaiConsonants(letters) >= 1
+                && CountThaiConsonants(letters) <= 2
+                && digits.Length >= 1
+                && digits.Length <= 4;
         }
 
         private static string MergePlateOcrReads(
@@ -261,8 +301,9 @@ namespace ConsoleApp1
             int fullConsonants = CountThaiConsonants(fullLetters);
             int prefixConsonants = CountThaiConsonants(prefixLetters);
 
+            // ภาพชัดถ้าอ่านได้ 1–2 ตัวแล้ว อย่าเอา crop ซ้ายมาทับ (มักสลับ ก/ฆ)
             string letters = fullLetters;
-            if (fullConsonants < 2 && prefixConsonants >= 1)
+            if (fullConsonants == 0 && prefixConsonants >= 1)
                 letters = prefixLetters;
 
             string digits = !string.IsNullOrEmpty(fullDigits) ? fullDigits : prefixDigits;
@@ -317,7 +358,7 @@ namespace ConsoleApp1
                 return string.Empty;
 
             var (text, score) = TryRecognizeLineOnce(lineBgr, isProvinceLine, emphasizeLetters: false);
-            if (IsStrongRead(text, score))
+            if (IsStrongRead(text, score) || PlateImagePreprocessor.IsAlreadyClear(lineBgr))
                 return text;
 
             using var sharpLine = PlateImagePreprocessor.SharpenForOcr(lineBgr);
@@ -341,23 +382,25 @@ namespace ConsoleApp1
         {
             using var prepared = PreprocessLine(lineBgr, emphasizeLetters);
             bool plateTopLine = !isProvinceLine;
+            bool alreadyClear = PlateImagePreprocessor.IsAlreadyClear(lineBgr);
 
             using var outputs = RunInference(prepared);
             var logits = outputs[0].AsTensor<float>();
 
-            var (peakText, peakScore, mergedPeaks) = DecodeCtcWithRepeats(
-                logits, plateTopLine, isProvinceLine);
-            var (stdText, stdScore) = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
-
-            string raw = PickBestRawDecode(peakText, peakScore, stdText, stdScore);
-            float score = Math.Max(peakScore, stdScore);
-
-            if (!isProvinceLine && mergedPeaks != null && mergedPeaks.Count > 0)
+            string raw;
+            float score;
+            if (alreadyClear)
             {
-                raw = ResolvePlateLineAmbiguity(logits, mergedPeaks, raw);
-                string plateNorm = ThaiPlateNumberNormalizer.Normalize(raw);
-                score = ScorePlateLineCandidate(plateNorm, mergedPeaks);
-                return (plateNorm, score);
+                // ภาพชัดใช้ CTC มาตรฐานของ Paddle — peak decode มักแทรก ก/ฆ เกิน
+                (raw, score) = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
+            }
+            else
+            {
+                var (peakText, peakScore, _) = DecodeCtcWithRepeats(
+                    logits, plateTopLine, isProvinceLine);
+                var (stdText, stdScore) = DecodeCtcStandardWithScore(logits, plateTopLine, isProvinceLine);
+                raw = PickBestRawDecode(peakText, peakScore, stdText, stdScore);
+                score = Math.Max(peakScore, stdScore);
             }
 
             string normalized = isProvinceLine
@@ -389,34 +432,39 @@ namespace ConsoleApp1
             if (string.IsNullOrEmpty(standard))
                 return peak;
 
-            if (peak.Length > standard.Length && peakScore >= stdScore - 0.8f)
+            bool stdLooksPlate = LooksLikePlateRaw(standard);
+            bool peakLooksPlate = LooksLikePlateRaw(peak);
+
+            if (stdLooksPlate && !peakLooksPlate)
+                return standard;
+            if (peakLooksPlate && !stdLooksPlate)
                 return peak;
-            if (standard.Length > peak.Length && stdScore >= peakScore - 0.8f)
+
+            if (stdLooksPlate && peakLooksPlate)
+                return stdScore >= peakScore - 0.6f ? standard : peak;
+
+            if (standard.Length >= peak.Length && stdScore >= peakScore - 0.8f)
                 return standard;
 
-            return peakScore >= stdScore ? peak : standard;
+            return stdScore >= peakScore ? standard : peak;
         }
 
-        /// <summary>ไม่สลับพยัญชนะหลัง CTC — ใช้ตัวที่โมเดลอ่านได้จากชุด 44 ตัว</summary>
-        private string ResolvePlateLineAmbiguity(
-            Tensor<float> logits,
-            List<(int Time, int ClassIdx, float Score)> peaks,
-            string initialRaw)
+        private static bool LooksLikePlateRaw(string raw)
         {
-            _ = logits;
-            _ = peaks;
-            return initialRaw;
-        }
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
 
-        private static float ScorePlateLineCandidate(
-            string normalized,
-            List<(int Time, int ClassIdx, float Score)> peaks)
-        {
-            if (string.IsNullOrWhiteSpace(normalized))
-                return float.MinValue;
+            int consonants = 0;
+            int digits = 0;
+            foreach (char c in raw)
+            {
+                if (ThaiPlateCharset.IsPlateConsonant(c))
+                    consonants++;
+                else if (char.IsDigit(c) || ThaiPlateCharset.IsThaiDigit(c))
+                    digits++;
+            }
 
-            float peakAvg = peaks.Count > 0 ? peaks.Average(p => p.Score) : -5f;
-            return peakAvg + PlatePrefixScorer.ScorePlateNumber(normalized, peaks) + normalized.Length * 0.02f;
+            return consonants >= 1 && consonants <= 3 && digits >= 1 && digits <= 6;
         }
 
         private char ClassIndexToChar(int classIdx)
@@ -442,7 +490,7 @@ namespace ConsoleApp1
                 Cv2.Resize(result, result, new Size(), scale, scale, InterpolationFlags.Cubic);
             }
 
-            if (PlateImagePreprocessor.IsBlurry(result) || emphasizeLetters)
+            if (PlateImagePreprocessor.IsBlurry(result))
             {
                 using var denoised = PlateImagePreprocessor.DenoiseForOcr(result);
                 denoised.CopyTo(result);
@@ -450,14 +498,18 @@ namespace ConsoleApp1
 
             using var gray = new Mat();
             Cv2.CvtColor(result, gray, ColorConversionCodes.BGR2GRAY);
-            double clip = emphasizeLetters ? 2.8 : PlateImagePreprocessor.IsBlurry(result) ? 3.0 : 2.5;
-            using var clahe = Cv2.CreateCLAHE(clipLimit: clip, tileGridSize: new Size(8, 8));
-            clahe.Apply(gray, gray);
+            bool blurry = PlateImagePreprocessor.IsBlurry(result);
+            if (blurry)
+            {
+                double clip = emphasizeLetters ? 2.2 : 2.5;
+                using var clahe = Cv2.CreateCLAHE(clipLimit: clip, tileGridSize: new Size(8, 8));
+                clahe.Apply(gray, gray);
+            }
             Cv2.CvtColor(gray, result, ColorConversionCodes.GRAY2BGR);
 
-            if (emphasizeLetters)
+            if (blurry && emphasizeLetters)
             {
-                using var sharp = PlateImagePreprocessor.SharpenForOcr(result, 0.35);
+                using var sharp = PlateImagePreprocessor.SharpenForOcr(result, 0.25);
                 sharp.CopyTo(result);
             }
 

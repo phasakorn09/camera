@@ -202,11 +202,11 @@ namespace ConsoleApp1
                 return true;
 
             if (track.BestSharpness >= GoodSharpnessEarly &&
-                track.FrameCount >= MinCollectFrames &&
+                track.FrameCount >= 4 &&
                 track.PlateauCount >= PlateauFrames)
                 return true;
 
-            return track.FrameCount >= MinCollectFrames && track.PlateauCount >= PlateauFrames;
+            return false;
         }
 
         private static bool IsReadyForOcr(CaptureTrack track)

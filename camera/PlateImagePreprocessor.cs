@@ -48,12 +48,23 @@ namespace ConsoleApp1
             return result;
         }
 
+        /// <summary>ภาพชัดอยู่แล้ว — ข้าม sharpen/CLAHE/Otsu-trim ที่ทำให้ ก/ฆ/ฬ เพี้ยน</summary>
+        private const double AlreadyClearSharpness = 28.0;
+
+        public static bool IsAlreadyClear(Mat bgr) =>
+            !bgr.Empty()
+            && bgr.Width >= 8
+            && bgr.Height >= 8
+            && !IsBlurry(bgr)
+            && MeasureSharpnessScore(bgr) >= AlreadyClearSharpness;
+
         private static void EnhancePlateClarity(Mat work)
         {
             if (work.Empty())
                 return;
 
             bool blurry = IsBlurry(work);
+            bool alreadyClear = IsAlreadyClear(work);
 
             if (blurry)
             {
@@ -70,13 +81,16 @@ namespace ConsoleApp1
                 }
             }
 
-            double sharpAmount = blurry ? 0.55 : 0.30;
+            if (alreadyClear)
+                return;
+
+            double sharpAmount = blurry ? 0.55 : 0.18;
             using (var sharp = SharpenForOcr(work, sharpAmount))
             {
                 sharp.CopyTo(work);
             }
 
-            double claheLimit = blurry ? 2.3 : 1.7;
+            double claheLimit = blurry ? 2.3 : 1.3;
             using (var enhanced = ApplyClaheBgr(work, claheLimit))
             {
                 enhanced.CopyTo(work);
@@ -241,17 +255,20 @@ namespace ConsoleApp1
             return result;
         }
 
-        /// <summary>Crop ป้ายจากเฟรม — padding พอให้ไม่ตัดขอบ ก/ฬ แล้วค่อยจูน</summary>
+        /// <summary>Crop ป้ายจากเฟรม — padding พอให้ไม่ตัดขอบ ก/ฬ; ภาพชัดไม่ Otsu-trim</summary>
         public static Mat CropPlateForOcr(Mat frame, Rect box)
         {
-            int padX = Math.Clamp(box.Width / 14, 6, 18);
-            int padY = Math.Clamp(box.Height / 10, 4, 12);
+            int padX = Math.Clamp(box.Width / 12, 8, 24);
+            int padY = Math.Clamp(box.Height / 8, 6, 16);
 
             Rect expanded = ExpandRect(box, padX, padY, frame.Width, frame.Height);
             if (expanded.Width <= 0 || expanded.Height <= 0)
                 return new Mat();
 
             using var rough = new Mat(frame, expanded).Clone();
+            if (IsAlreadyClear(rough))
+                return rough.Clone();
+
             return TightenCropToPlateEdges(rough, edgeMargin: 4);
         }
 
@@ -264,13 +281,14 @@ namespace ConsoleApp1
             return new Rect(x, y, w, h);
         }
 
-        /// <summary>Upscale → CLAHE → ตรงป้าย → ตัดขอบ → ทำให้ชัด ก่อนแยกบรรทัด OCR</summary>
+        /// <summary>Upscale → ตรงป้าย — ภาพชัดไม่บังคับ CLAHE/sharpen</summary>
         public static Mat PreparePlateCropForOcr(Mat cropBgr)
         {
             if (cropBgr.Empty() || cropBgr.Width < 8 || cropBgr.Height < 8)
                 return cropBgr.Clone();
 
             var work = cropBgr.Clone();
+            bool alreadyClear = IsAlreadyClear(work);
 
             if (work.Width < MinPlateWidth)
             {
@@ -281,6 +299,9 @@ namespace ConsoleApp1
                     scale, scale,
                     InterpolationFlags.Cubic);
             }
+
+            if (alreadyClear)
+                return work;
 
             using (var enhanced = ApplyClaheBgr(work, clipLimit: 1.8))
             {
@@ -303,7 +324,6 @@ namespace ConsoleApp1
             }
 
             EnhancePlateClarity(work);
-
             return work;
         }
 
@@ -337,6 +357,9 @@ namespace ConsoleApp1
                 work.Dispose();
                 work = upscaled;
             }
+
+            if (IsAlreadyClear(work))
+                return work;
 
             using (var sharp = SharpenForOcr(work, amount: 0.45))
             {
@@ -411,9 +434,12 @@ namespace ConsoleApp1
             if (h >= 12)
             {
                 Add(FindLineSplitY(plateBgr));
-                Add((int)(h * 0.50));
-                Add((int)(h * 0.55));
-                Add((int)(h * 0.62));
+                if (!IsAlreadyClear(plateBgr))
+                {
+                    Add((int)(h * 0.50));
+                    Add((int)(h * 0.55));
+                    Add((int)(h * 0.62));
+                }
             }
             else
             {
