@@ -5,8 +5,8 @@ using OpenCvSharp;
 namespace ConsoleApp1
 {
     /// <summary>
-    /// เปิดแหล่งวิดีโอ — ค่าเริ่มต้นคือกล้อง IP 192.168.254.6 (Hikvision RTSP)
-    /// รหัสผ่านอ่านจาก env เพื่อไม่ต้อง commit ค่าใหม่; fallback เป็นค่าเดิมในโปรเจกต์
+    /// เปิดแหล่งวิดีโอ — ค่าเริ่มต้นคือ webcam โน้ตบุ๊ก
+    /// กล้อง IP ใช้เมื่อส่ง --url / --ip เท่านั้น
     /// </summary>
     internal static class CameraSource
     {
@@ -18,10 +18,15 @@ namespace ConsoleApp1
                 "OPENCV_FFMPEG_CAPTURE_OPTIONS",
                 "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
 
-            if (HasFlag(args, "--webcam"))
+            bool forceIp = !string.IsNullOrWhiteSpace(GetOption(args, "--url"))
+                || !string.IsNullOrWhiteSpace(GetOption(args, "--ip"))
+                || HasFlag(args, "--rtsp")
+                || HasFlag(args, "--ip-camera");
+
+            if (!forceIp || HasFlag(args, "--webcam"))
             {
-                sourceDescription = "webcam 0";
-                var webcam = new VideoCapture(0);
+                sourceDescription = "webcam โน้ตบุ๊ก";
+                var webcam = OpenLaptopWebcam();
                 webcam.Set(VideoCaptureProperties.BufferSize, 1);
                 return webcam;
             }
@@ -75,6 +80,21 @@ namespace ConsoleApp1
             urls.Add($"rtsp://{user}:{password}@{ip}:554/h264/ch1/main/av_stream");
 
             return urls;
+        }
+
+        private static VideoCapture OpenLaptopWebcam()
+        {
+            foreach (int index in new[] { 0, 1 })
+            {
+                var webcam = new VideoCapture(index);
+                webcam.Set(VideoCaptureProperties.BufferSize, 1);
+                if (webcam.IsOpened())
+                    return webcam;
+
+                webcam.Dispose();
+            }
+
+            return new VideoCapture(0);
         }
 
         public static bool WantsOnce(string[] args) =>

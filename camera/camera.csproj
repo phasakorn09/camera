@@ -8,7 +8,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
     <StartupObject>ConsoleApp1.Program</StartupObject>
-    <DefaultLaunchProfileName>Live (IP camera)</DefaultLaunchProfileName>
+    <DefaultLaunchProfileName>Webcam</DefaultLaunchProfileName>
     <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
   </PropertyGroup>
 

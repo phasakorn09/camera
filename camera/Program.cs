@@ -82,25 +82,25 @@ namespace ConsoleApp1
                 "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;0");
 
             // ไม่ใช้ --webcam จาก launch profile — สลับเองตรงนี้แล้วกด F5
-            // true  = webcam โน้ตบุ๊ก
-            // false = กล้อง IP RTSP
-            const bool useWebcam = false;
+            // true  = webcam โน้ตบุ๊ก (ค่าเริ่มต้นตอนนี้)
+            // false = กล้อง IP RTSP (ค่อยเปิดทีหลัง)
+            const bool useWebcam = true;
             const string rtspUrl = "rtsp://admin:Admin1234@192.168.254.6:554/Streaming/Channels/101";
 
             using var capture = useWebcam ? new VideoCapture(0) : new VideoCapture(rtspUrl);
-            string cameraSource = useWebcam ? "webcam 0" : rtspUrl;
+            string cameraSource = useWebcam ? "webcam โน้ตบุ๊ก" : rtspUrl;
             capture.Set(VideoCaptureProperties.BufferSize, 1);
 
             if (!capture.IsOpened())
             {
                 Console.WriteLine($"ไม่สามารถเปิดกล้องได้ ({cameraSource})");
-                Console.WriteLine("ตั้ง useWebcam = true สำหรับ webcam หรือแก้ rtspUrl ให้ตรงกล้อง");
+                Console.WriteLine("ตรวจว่า webcam โน้ตบุ๊กไม่ได้ถูกโปรแกรมอื่นใช้ค้างไว้");
                 if (!once)
                     Console.ReadKey();
                 return;
             }
 
-            Console.WriteLine($"เปิดกล้องสำเร็จ: {cameraSource}");
+            Console.WriteLine($"เปิดกล้องสำเร็จ: {cameraSource} (ยังไม่ต่อกล้อง IP)");
             Console.WriteLine("RT-DETR = หาป้าย  |  PaddleOCR = อ่านครั้งเดียวเมื่อได้ crop ชัดที่สุด");
             Console.WriteLine($"บันทึก crop ป้ายที่: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures")}");
             Console.WriteLine($"CSV log: {System.IO.Path.Combine(AppContext.BaseDirectory, "Captures", "plates.csv")}");
