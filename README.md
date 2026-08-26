@@ -1,5 +1,24 @@
 # Thai License Plate Detection & OCR
 
+## หาโฟลเดอร์แดชบอร์ดไม่เจอ?
+
+โปรเจกต์ ASP.NET Web Forms **ไม่ได้อยู่ใน `camera/` และไม่ได้อยู่ใน `test/` แล้ว**
+
+เปิดไฟล์เหล่านี้ที่ **รากของ repo**:
+
+| ไฟล์ / โฟลเดอร์ | ใช้ทำอะไร |
+|-----------------|-----------|
+| `หาแดชบอร์ดที่นี่.txt` | อธิบาย path |
+| `DashboardWebApp.sln` | เปิดใน Visual Studio 2026 |
+| `DashboardWebApp\` | โค้ดหน้า `index.aspx` และไฟล์ Excel |
+| `คัดลอกไป-C-DashboardWebApp.bat` | สร้างโฟลเดอร์ `C:\DashboardWebApp` ให้ |
+
+ยังไม่มีโฟลเดอร์ `C:\DashboardWebApp` จนกว่าจะรันไฟล์ `.bat` หรือคัดลอกเอง
+
+รายละเอียดเต็ม: [DashboardWebApp/README.md](DashboardWebApp/README.md)
+
+---
+
 แอป C# (.NET 10) สำหรับตรวจจับป้ายทะเบียนไทยจาก webcam หรือ RTSP แล้วอ่านตัวอักษรด้วย PaddleOCR
 
 ## ความต้องการของระบบ

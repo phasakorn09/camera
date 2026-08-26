@@ -9,6 +9,12 @@ namespace DashboardWebApp
     public partial class index
     {
         protected global::System.Web.UI.HtmlControls.HtmlForm form1;
+        protected global::System.Web.UI.WebControls.FileUpload fuExcel;
+        protected global::System.Web.UI.WebControls.Button btnUpload;
+        protected global::System.Web.UI.WebControls.Button btnReset;
+        protected global::System.Web.UI.WebControls.Button btnDownloadTemplate;
+        protected global::System.Web.UI.WebControls.Label lblSourceFile;
+        protected global::System.Web.UI.WebControls.Label lblLoadedAt;
         protected global::System.Web.UI.WebControls.Panel pnlError;
         protected global::System.Web.UI.WebControls.Label lblError;
         protected global::System.Web.UI.WebControls.Panel pnlDashboard;
@@ -21,7 +27,11 @@ namespace DashboardWebApp
         protected global::System.Web.UI.WebControls.GridView gvSales;
         protected global::System.Web.UI.WebControls.Repeater rptCategories;
         protected global::System.Web.UI.WebControls.GridView gvProducts;
+        protected global::System.Web.UI.WebControls.GridView gvLowStock;
+        protected global::System.Web.UI.WebControls.Panel pnlLowStockEmpty;
         protected global::System.Web.UI.WebControls.GridView gvCustomers;
         protected global::System.Web.UI.WebControls.GridView gvEmployees;
+        protected global::System.Web.UI.WebControls.Literal litCategoryJson;
+        protected global::System.Web.UI.WebControls.Literal litStockJson;
     }
 }

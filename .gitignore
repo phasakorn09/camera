@@ -46,3 +46,7 @@ appsettings.*.json
 **/Captures/*.png
 **/Captures/plates.csv
 !**/Captures/.gitkeep
+
+# Uploaded Excel files (keep the folder)
+**/App_Data/uploads/*
+!**/App_Data/uploads/.gitkeep
