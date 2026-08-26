@@ -61,3 +61,9 @@ Pipeline: จับเฟรม → RT-DETR หาป้าย → ตัด/ป
 - [OpenCvSharp4](https://github.com/shimat/opencvsharp) — วิดีโอและประมวลผลภาพ
 - [ONNX Runtime](https://onnxruntime.ai/) — inference
 - RT-DETR + PaddleOCR Thai PP-OCRv5
+
+## แดชบอร์ด ASP.NET Web Forms
+
+โปรเจกต์แดชบอร์ดร้านวัสดุก่อสร้างอยู่ที่ `test/` — เปิด `test/DashboardWebApp.sln` ด้วย Visual Studio 2026 แล้วรัน `index.aspx`
+
+รายละเอียดและวิธีวางที่ `C:\DashboardWebApp` ดูใน [test/README.md](test/README.md)

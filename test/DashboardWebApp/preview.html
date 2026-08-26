@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>แดชบอร์ดร้านวัสดุก่อสร้าง | DashboardWebApp</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&amp;family=Sarabun:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="Content/css/dashboard.css" />
+</head>
+<body>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" width="36" height="36">
+                        <rect x="4" y="18" width="40" height="22" rx="3" fill="#f5a524"></rect>
+                        <polygon points="4,18 24,6 44,18" fill="#f8d57a"></polygon>
+                        <rect x="20" y="26" width="8" height="14" fill="#122033"></rect>
+                    </svg>
+                </span>
+                <div>
+                    <strong>BuildBoard</strong>
+                    <span>ร้านวัสดุก่อสร้าง</span>
+                </div>
+            </div>
+            <nav class="side-nav">
+                <a href="#overview" class="is-active">ภาพรวม</a>
+                <a href="#sales">การขาย</a>
+                <a href="#inventory">สินค้าคงเหลือ</a>
+                <a href="#people">ลูกค้า &amp; พนักงาน</a>
+            </nav>
+            <div class="sidebar-foot">
+                <p>ASP.NET Web Forms</p>
+                <p>อ่านไฟล์ .xlsx ด้วย Open XML</p>
+            </div>
+        </aside>
+        <div class="main-column">
+            <header class="topbar">
+                <div>
+                    <p class="eyebrow">Excel Dashboard</p>
+                    <h1>แดชบอร์ดร้านวัสดุก่อสร้าง</h1>
+                </div>
+                <div class="topbar-meta">
+                    <span class="status-pill">ออนไลน์</span>
+                    <span class="file-chip">test4.xlsx</span>
+                    <span class="time-chip">อัปเดต 26 Aug 2026 04:46 น.</span>
+                </div>
+            </header>
+            <section class="toolbar">
+                <div class="toolbar-copy">
+                    <h2>โหลดข้อมูลจากไฟล์ Excel</h2>
+                    <p>เลือกไฟล์ .xlsx ที่มีชีต สินค้า, ลูกค้า, พนักงาน และการขาย หรือใช้ไฟล์ตัวอย่าง test4.xlsx</p>
+                </div>
+                <div class="toolbar-actions">
+                    <label class="file-picker"><span>เลือกไฟล์ .xlsx</span></label>
+                    <button class="btn btn-primary" type="button">โหลดข้อมูล</button>
+                    <button class="btn btn-ghost" type="button">ใช้ไฟล์ตัวอย่าง</button>
+                    <button class="btn btn-ghost" type="button">ดาวน์โหลดตัวอย่าง</button>
+                </div>
+            </section>
+            <section id="overview" class="stats-grid">
+                <article class="stat-card blue"><div class="stat-icon">ยอดขาย</div><div class="stat-label">ยอดขายรวม</div><div class="stat-value">51,635 ฿</div></article>
+                <article class="stat-card emerald"><div class="stat-icon">สินค้า</div><div class="stat-label">รายการสินค้า</div><div class="stat-value">10</div></article>
+                <article class="stat-card amber"><div class="stat-icon">ลูกค้า</div><div class="stat-label">ลูกค้า / สมาชิก</div><div class="stat-value">5 / 3</div></article>
+                <article class="stat-card violet"><div class="stat-icon">ทีม</div><div class="stat-label">พนักงาน</div><div class="stat-value">4</div></article>
+                <article class="stat-card cyan"><div class="stat-icon">บิล</div><div class="stat-label">รายการขาย</div><div class="stat-value">12</div></article>
+                <article class="stat-card rose"><div class="stat-icon">สต็อก</div><div class="stat-label">มูลค่าสต็อก</div><div class="stat-value">311,900 ฿</div></article>
+            </section>
+            <section class="content-grid charts-grid">
+                <article class="panel">
+                    <div class="panel-header"><h2>ยอดขายตามประเภทสินค้า</h2></div>
+                    <div class="panel-body chart-body">
+                        <canvas id="categoryChart" height="220"></canvas>
+                        <ul class="category-list"><li class="category-item"><span>ปูน</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 100.0%;"></div></div>
+            <span class="category-amount">12,950 ฿</span></li><li class="category-item"><span>วัสดุ</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 68.0%;"></div></div>
+            <span class="category-amount">8,800 ฿</span></li><li class="category-item"><span>กระเบื้อง</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 57.1%;"></div></div>
+            <span class="category-amount">7,400 ฿</span></li><li class="category-item"><span>เหล็ก</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 55.0%;"></div></div>
+            <span class="category-amount">7,125 ฿</span></li><li class="category-item"><span>ประตูหน้าต่าง</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 34.7%;"></div></div>
+            <span class="category-amount">4,500 ฿</span></li><li class="category-item"><span>ท่อ</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 29.0%;"></div></div>
+            <span class="category-amount">3,750 ฿</span></li><li class="category-item"><span>สี</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 27.5%;"></div></div>
+            <span class="category-amount">3,560 ฿</span></li><li class="category-item"><span>ไฟฟ้า</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 13.9%;"></div></div>
+            <span class="category-amount">1,800 ฿</span></li><li class="category-item"><span>อิฐ</span>
+            <div class="category-bar-wrap"><div class="category-bar" style="width: 13.5%;"></div></div>
+            <span class="category-amount">1,750 ฿</span></li></ul>
+                    </div>
+                </article>
+                <article class="panel">
+                    <div class="panel-header"><h2>สัดส่วนสต็อกตามประเภท</h2></div>
+                    <div class="panel-body chart-body chart-body-donut">
+                        <canvas id="stockChart" height="220"></canvas>
+                    </div>
+                </article>
+            </section>
+            <section id="sales" class="content-grid">
+                <article class="panel">
+                    <div class="panel-header"><h2>รายการขายล่าสุด</h2></div>
+                    <div class="panel-body"><table class="data-table"><thead><tr><th>รหัส</th><th>วันที่</th><th>ลูกค้า</th><th>สินค้า</th><th>จำนวน</th><th>รวมเงิน</th></tr></thead><tbody><tr><td class="">S012</td><td class="">25/08/2026</td><td class="">วิภา สุขสันต์</td><td class="">ปูนซีเมนต์ Portland</td><td class="text-right">50</td><td class="text-right amount-positive">9,250 ฿</td></tr><tr><td class="">S011</td><td class="">24/08/2026</td><td class="">ธนา ธุรกิจ</td><td class="">เหล็กเส้น 12 มม.</td><td class="text-right">10</td><td class="text-right amount-positive">2,850 ฿</td></tr><tr><td class="">S010</td><td class="">22/08/2026</td><td class="">สมชาย ใจดี</td><td class="">หินคลุก (ลบ.ม.)</td><td class="text-right">5</td><td class="text-right amount-positive">3,600 ฿</td></tr><tr><td class="">S009</td><td class="">20/08/2026</td><td class="">นภา เรือนงาม</td><td class="">ประตูไม้เต็ง</td><td class="text-right">1</td><td class="text-right amount-positive">4,500 ฿</td></tr><tr><td class="">S008</td><td class="">18/08/2026</td><td class="">ประยุทธ ก่อสร้าง</td><td class="">ทรายหยาบ (ลบ.ม.)</td><td class="text-right">8</td><td class="text-right amount-positive">5,200 ฿</td></tr><tr><td class="">S007</td><td class="">15/08/2026</td><td class="">วิภา สุขสันต์</td><td class="">สายไฟ THW 2.5 sqmm</td><td class="text-right">100</td><td class="text-right amount-positive">1,800 ฿</td></tr><tr><td class="">S006</td><td class="">12/08/2026</td><td class="">ธนา ธุรกิจ</td><td class="">กระเบื้องปูพื้น 60x60</td><td class="text-right">40</td><td class="text-right amount-positive">7,400 ฿</td></tr><tr><td class="">S005</td><td class="">10/08/2026</td><td class="">นภา เรือนงาม</td><td class="">ท่อ PVC 4 นิ้ว</td><td class="text-right">30</td><td class="text-right amount-positive">3,750 ฿</td></tr><tr><td class="">S004</td><td class="">07/08/2026</td><td class="">สมชาย ใจดี</td><td class="">สีทาบ้าน 5 ลิตร</td><td class="text-right">4</td><td class="text-right amount-positive">3,560 ฿</td></tr><tr><td class="">S003</td><td class="">05/08/2026</td><td class="">ประยุทธ ก่อสร้าง</td><td class="">อิฐมอญ</td><td class="text-right">500</td><td class="text-right amount-positive">1,750 ฿</td></tr><tr><td class="">S002</td><td class="">03/08/2026</td><td class="">วิภา สุขสันต์</td><td class="">เหล็กเส้น 12 มม.</td><td class="text-right">15</td><td class="text-right amount-positive">4,275 ฿</td></tr><tr><td class="">S001</td><td class="">01/08/2026</td><td class="">สมชาย ใจดี</td><td class="">ปูนซีเมนต์ Portland</td><td class="text-right">20</td><td class="text-right amount-positive">3,700 ฿</td></tr></tbody></table></div>
+                </article>
+                <article class="panel">
+                    <div class="panel-header"><h2>สินค้าใกล้หมด</h2></div>
+                    <div class="panel-body"><table class="data-table"><thead><tr><th>รหัส</th><th>ชื่อสินค้า</th><th>คงเหลือ</th></tr></thead><tbody><tr><td class="">P010</td><td class="">ประตูไม้เต็ง</td><td class="text-right stock-low">12</td></tr><tr><td class="">P009</td><td class="">หินคลุก (ลบ.ม.)</td><td class="text-right stock-low">35</td></tr><tr><td class="">P008</td><td class="">ทรายหยาบ (ลบ.ม.)</td><td class="text-right stock-low">40</td></tr><tr><td class="">P004</td><td class="">สีทาบ้าน 5 ลิตร</td><td class="text-right stock-low">45</td></tr></tbody></table></div>
+                </article>
+            </section>
+            <section id="inventory" class="content-grid single">
+                <article class="panel">
+                    <div class="panel-header"><h2>สินค้าคงเหลือ</h2></div>
+                    <div class="panel-body"><table class="data-table"><thead><tr><th>รหัส</th><th>ชื่อสินค้า</th><th>ประเภท</th><th>ราคา</th><th>คงเหลือ</th></tr></thead><tbody><tr><td class="">P001</td><td class="">ปูนซีเมนต์ Portland</td><td class="">ปูน</td><td class="text-right">185 ฿</td><td class="text-right">120</td></tr><tr><td class="">P002</td><td class="">เหล็กเส้น 12 มม.</td><td class="">เหล็ก</td><td class="text-right">285 ฿</td><td class="text-right">80</td></tr><tr><td class="">P003</td><td class="">อิฐมอญ</td><td class="">อิฐ</td><td class="text-right">3.50 ฿</td><td class="text-right">5,000</td></tr><tr><td class="">P004</td><td class="">สีทาบ้าน 5 ลิตร</td><td class="">สี</td><td class="text-right">890 ฿</td><td class="text-right stock-low">45</td></tr><tr><td class="">P005</td><td class="">ท่อ PVC 4 นิ้ว</td><td class="">ท่อ</td><td class="text-right">125 ฿</td><td class="text-right">200</td></tr><tr><td class="">P006</td><td class="">สายไฟ THW 2.5 sqmm</td><td class="">ไฟฟ้า</td><td class="text-right">18 ฿</td><td class="text-right">800</td></tr><tr><td class="">P007</td><td class="">กระเบื้องปูพื้น 60x60</td><td class="">กระเบื้อง</td><td class="text-right">185 ฿</td><td class="text-right">350</td></tr><tr><td class="">P008</td><td class="">ทรายหยาบ (ลบ.ม.)</td><td class="">วัสดุ</td><td class="text-right">650 ฿</td><td class="text-right stock-low">40</td></tr><tr><td class="">P009</td><td class="">หินคลุก (ลบ.ม.)</td><td class="">วัสดุ</td><td class="text-right">720 ฿</td><td class="text-right stock-low">35</td></tr><tr><td class="">P010</td><td class="">ประตูไม้เต็ง</td><td class="">ประตูหน้าต่าง</td><td class="text-right">4,500 ฿</td><td class="text-right stock-low">12</td></tr></tbody></table></div>
+                </article>
+            </section>
+            <section id="people" class="content-grid">
+                <article class="panel">
+                    <div class="panel-header"><h2>ลูกค้า</h2></div>
+                    <div class="panel-body"><table class="data-table"><thead><tr><th>รหัส</th><th>ชื่อ-นามสกุล</th><th>เบอร์โทร</th><th>สมาชิก</th></tr></thead><tbody><tr><td class="">C001</td><td class="">สมชาย ใจดี</td><td class="">081-234-5678</td><td class=""><span class="badge badge-success">สมาชิก</span></td></tr><tr><td class="">C002</td><td class="">วิภา สุขสันต์</td><td class="">089-111-2233</td><td class=""><span class="badge badge-success">สมาชิก</span></td></tr><tr><td class="">C003</td><td class="">ประยุทธ ก่อสร้าง</td><td class="">062-555-8899</td><td class=""><span class="badge badge-muted">ทั่วไป</span></td></tr><tr><td class="">C004</td><td class="">นภา เรือนงาม</td><td class="">098-765-4321</td><td class=""><span class="badge badge-success">สมาชิก</span></td></tr><tr><td class="">C005</td><td class="">ธนา ธุรกิจ</td><td class="">091-222-3344</td><td class=""><span class="badge badge-muted">ทั่วไป</span></td></tr></tbody></table></div>
+                </article>
+                <article class="panel">
+                    <div class="panel-header"><h2>พนักงาน</h2></div>
+                    <div class="panel-body"><table class="data-table"><thead><tr><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>เงินเดือน</th></tr></thead><tbody><tr><td class="">E001</td><td class="">อนุชา แสงทอง</td><td class="">ผู้จัดการ</td><td class="text-right">35,000 ฿</td></tr><tr><td class="">E002</td><td class="">มณีรัตน์ ใจดี</td><td class="">พนักงานขาย</td><td class="text-right">18,000 ฿</td></tr><tr><td class="">E003</td><td class="">ชัยวัฒน์ มีสุข</td><td class="">พนักงานคลัง</td><td class="text-right">16,000 ฿</td></tr><tr><td class="">E004</td><td class="">สุดา รักงาน</td><td class="">แคชเชียร์</td><td class="text-right">15,000 ฿</td></tr></tbody></table></div>
+                </article>
+            </section>
+            <footer class="dashboard-footer">DashboardWebApp — ASP.NET Web Forms · หน้าเริ่มต้น index.aspx · Visual Studio 2026</footer>
+        </div>
+    </div>
+    <script type="application/json" id="category-chart-data">{"labels": ["ปูน", "วัสดุ", "กระเบื้อง", "เหล็ก", "ประตูหน้าต่าง", "ท่อ", "สี", "ไฟฟ้า", "อิฐ"], "values": [12950.0, 8800.0, 7400.0, 7125.0, 4500.0, 3750.0, 3560.0, 1800.0, 1750.0]}</script>
+    <script type="application/json" id="stock-chart-data">{"labels": ["อิฐ", "ไฟฟ้า", "กระเบื้อง", "ท่อ", "ปูน", "เหล็ก", "วัสดุ", "สี", "ประตูหน้าต่าง"], "values": [5000, 800, 350, 200, 120, 80, 75, 45, 12]}</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="Content/js/dashboard.js"></script>
+</body>
+</html>
